@@ -1,0 +1,27 @@
+{
+    "ppo_unitreeGo2" : {
+        "lr": 0.0001,
+        "gamma": 0.99,
+        "episodes": 1000, 
+        "epsilon": 0.5,
+        "buffer_size": 10000,
+        "batch_size": 64,
+        "td_interval": 100,
+        "input_size": 5,
+        "action_size": 11, 
+        "max_step": 10000
+    },
+
+    "sample" : {
+        "lr": "学習率",
+        "gamma": "割引率",
+        "episodes": "学習エピソード数",
+        "epsilon": "ε-greedy法の初期ε値",
+        "buffer_size": "リプレイバッファのサイズ",
+        "batch_size": "ミニバッチのサイズ",
+        "td_interval": "ターゲットネットワークの更新間隔",
+        "input_size": "入力サイズ",
+        "action_size": "行動サイズ",
+        "max_step": "1エピソードあたりの最大ステップ数"
+    }
+}
