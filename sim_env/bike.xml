@@ -1,14 +1,15 @@
-<!-- 
+<!--
 必要なこと
  DONE ーグラウンドプレーンの指定
- ー物理環境の調整（timestepsとか。必要？）
- ーロボットの読み込み、ジョイント、アクチュエータ(torque<=0.021Nm)、センサの指定
+ DONE ーロボットの読み込み、ジョイント、アクチュエータ(torque<=0.021Nm)、センサの指定
  ー慣性モーメントの計算
+ ー物理環境の調整（timestepsとか。必要？）
 
  ジョイント：タイヤの軸とボディ、前タイヤの軸
  アクチュエータ：前後のタイヤ回転
  センサ：回転角速度センサ、位置センサ、加速度センサ、ボディのIMUセンサ
  -->
+
 <mujoco model="really_simple_arm">
     <compiler angle="degree"/>
     <option integrator="RK4" timestep="0.01" gravity="0 0 -9.81"/>
@@ -41,25 +42,33 @@
         <geom name="floor" size="0 0 0.05" type="plane" material="groundplane"/>
 
         <body name="body" pos="0 0 0.03">
+            <!-- <inertial pos="-0.00374 -0.0223 -0.0327" quat="0.829533 0.0847635 -0.0200632 0.551623"
+                mass="" fullinertia="0.00594973 0.00584149 0.000878787 0 0 0"/> -->
             <geom mesh="body" class="stl"/>
             <joint type="free" name="body_free_joint"/>
             <site name="imu_site" pos="0 0 0.2" size="0.01"/>
             <body name="fork" pos="-0.105 -0.02 0.042">
+                <!-- <inertial pos="-0.00374 -0.0223 -0.0327" quat="0.829533 0.0847635 -0.0200632 0.551623"
+                    mass="" fullinertia="0.00594973 0.00584149 0.000878787 0 0 0"/> -->
                 <joint name="joint_fork" type="hinge" axis="0 0 1" range="-90 90"/>
                 <geom mesh="fork" class="stl"/>
                 <body name="F_wheel" pos="0 -0.005 -0.040">
+                    <!-- <inertial pos="-0.00374 -0.0223 -0.0327" quat="0.829533 0.0847635 -0.0200632 0.551623"
+                        mass="" fullinertia="0.00594973 0.00584149 0.000878787 0 0 0"/> -->
                     <joint name="joint_F_wheel" type="hinge" axis="0 1 0"/>
                     <geom mesh="F_wheel" class="stl_tire" friction="1.0 0.005 0.0001"/>
                 </body>
             </body>
             <body name="R_wheel" pos="0 -0.027 0">
+                <!-- <inertial pos="0 0.027733 0" mass="135.6"
+                        fullinertia="4.177 7.665 4.177 0 0 0"/> -->
                 <joint name="joint_R_wheel" type="hinge" axis="0 1 0"/>
                 <geom mesh="R_wheel" class="stl_tire" friction="1.0 0.005 0.0001"/>
             </body>
         </body>              
     </worldbody>
     <actuator>
-        <motor name="fork" joint="joint_fork"/>
+        <position name="fork" joint="joint_fork"/>
         <motor joint="joint_R_wheel" ctrlrange="-0.021 0.021"/>
     </actuator>
     <sensor>
