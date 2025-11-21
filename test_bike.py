@@ -118,3 +118,4 @@ with mujoco.viewer.launch_passive(model, data) as viewer:
     #     t = time.time()
     #     # 経過時間
     #     # print("Elapsed time:", time.time() - t0)
+    
