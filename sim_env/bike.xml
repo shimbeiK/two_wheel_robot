@@ -10,28 +10,33 @@
  センサ：回転角速度センサ、位置センサ、加速度センサ、ボディのIMUセンサ
  -->
 
-<mujoco model="really_simple_arm">
-    <compiler angle="degree"/>
-    <option integrator="RK4" timestep="0.01" gravity="0 0 -9.81"/>
+<mujoco model="two_wheel_bike">
+    <compiler angle="radian"/>
+    <option integrator="RK4" timestep="0.0002" gravity="0 0 -9.81"/>
     <option cone="elliptic"/>
     <option solver="PGS"/>    <!-- 脚系のロボットより bike はPGSの方が安定 -->
     <option iterations="50"/>
-    <default>
-        <!-- Fusion 360 の座標系を MuJoCo に変換します -->
+<default>
         <default class="stl">
             <geom type="mesh" xyaxes="1 0 0 0 0 1"/>
         </default>
-        <default class="stl_tire">
-            <geom type="mesh" xyaxes="1 0 0 0 1 0"/>
+        
+        <default class="visual_tire">
+            <!-- <geom type="mesh" xyaxes="1 0 0 0 1 0" contype="0" conaffinity="0" group="1"/> -->
+            <geom type="mesh" xyaxes="1 0 0 0 1 0" friction="0.8 0.5 0.001"/>
         </default>
-
+        
+        <default class="collision_tire">
+            <geom type="cylinder" size="0.032 0.005" rgba="0 0 1 0.3"/> 
+        </default>
     </default>
     <asset>
         <texture type="2d" name="groundplane" builtin="checker" mark="edge" rgb1="0.2 0.3 0.4" rgb2="0.1 0.2 0.3"
           markrgb="0.8 0.8 0.8" width="300" height="300"/>
         <material name="groundplane" texture="groundplane" texuniform="true" texrepeat="5 5" reflectance="0.2"/>
-        <!-- Fusionはデフォルトでmm単位のメッシュを出力しますが、MuJoCoではmに変換する必要があります。そのため、スケーリングが必要です -->
-        <!-- <mesh name="bike" file="models/HBP_ver1_0.stl" scale="0.001 0.001 0.001"/> -->
+        <texture name="grid_tex" type="2d" builtin="checker" rgb1="0.9 0.3 0.4" rgb2="0.9 0.9 0.9" 
+                width="512" height="512" mark="cross" markrgb="0 0 0"/>
+        <material name="F_wheel_tex" texture="grid_tex" texuniform="true" texrepeat="1 1" reflectance="0.1"/>        <!-- <mesh name="bike" file="models/HBP_ver1_0.stl" scale="0.001 0.001 0.001"/> -->
         <mesh name="body" file="models/body.stl" scale="0.001 0.001 0.001"/>
         <mesh name="F_wheel" file="models/F_wheel.stl" scale="0.001 0.001 0.001"/>
         <mesh name="R_wheel" file="models/R_wheel.stl" scale="0.001 0.001 0.001"/>
@@ -41,43 +46,59 @@
         <light pos="0 0 10.5" dir="0 0 -1" directional="true"/>
         <geom name="floor" size="0 0 0.05" type="plane" material="groundplane"/>
 
-        <body name="body" pos="0 0 0.03">
-            <!-- <inertial pos="-0.00374 -0.0223 -0.0327" quat="0.829533 0.0847635 -0.0200632 0.551623"
-                mass="" fullinertia="0.00594973 0.00584149 0.000878787 0 0 0"/> -->
-            <geom mesh="body" class="stl"/>
+        <!-- <body name="body" pos="0 0 0.04"> -->
+        <body name="body" pos="0 0 0.033">
+            <inertial pos="-0.050251 0.044412 0.017903" mass="0.2151" 
+                fullinertia="1.473e-3 2.817e-3 3.852e-3 1.345e-3 1.834e-4 -1.423e-4"/>
+            <geom mesh="body" class="stl" contype="0" conaffinity="0"/>
             <joint type="free" name="body_free_joint"/>
-            <site name="imu_site" pos="0 0 0.2" size="0.01"/>
-            <body name="fork" pos="-0.105 -0.02 0.042">
-                <!-- <inertial pos="-0.00374 -0.0223 -0.0327" quat="0.829533 0.0847635 -0.0200632 0.551623"
-                    mass="" fullinertia="0.00594973 0.00584149 0.000878787 0 0 0"/> -->
-                <joint name="joint_fork" type="hinge" axis="0 0 1" range="-90 90"/>
-                <geom mesh="fork" class="stl"/>
+            <!-- <joint type="slide" axis="1 0 0" pos="0 0 0" name="root_x"/>
+            <joint type="slide" axis="0 1 0" pos="0 0 0" name="root_y"/>
+            <joint type="slide" axis="0 0 1" pos="0 0 0" name="root_z"/>
+            <joint type="hinge" axis="0 1 0" pos="0 0 0" name="root_y_arg"/>
+            <joint type="hinge" axis="0 0 1" pos="0 0 0" name="root_z_arg"/> -->
+            <!-- <joint type="hinge" axis="1 0 0" pos="0 0 0" name="root_x_arg"/> -->
+            <site name="imu_site" pos="-0.05 0 0.07" size="0.005"/>
+            <body name="fork" pos="-0.105 -0.02 0.041">
+                <inertial pos="0 -0.016822 0" mass="0.048253" 
+                        fullinertia="1.3534e-5 5.6705e-6 1.3103e-5 0 0 0"/>
+                <!-- <joint name="joint_fork" type="hinge" axis="0 0 1"/> -->
+                <joint name="joint_fork" type="hinge" axis="0 0 1" limited="true" range="-1.57 1.57"/>
+                <!-- <joint type="slide" axis="1 0 0" pos="0 0 0" name="root_x_fork"/>
+                <joint type="slide" axis="0 1 0" pos="0 0 0" name="root_y_fork"/> -->
+                <geom mesh="fork" class="stl" contype="0" conaffinity="0"/>
                 <body name="F_wheel" pos="0 -0.005 -0.040">
-                    <!-- <inertial pos="-0.00374 -0.0223 -0.0327" quat="0.829533 0.0847635 -0.0200632 0.551623"
-                        mass="" fullinertia="0.00594973 0.00584149 0.000878787 0 0 0"/> -->
-                    <joint name="joint_F_wheel" type="hinge" axis="0 1 0"/>
-                    <geom mesh="F_wheel" class="stl_tire" friction="1.0 0.005 0.0001"/>
+                    <inertial pos="0 0.005508 0" mass="0.243435" 
+                        fullinertia="5.2849e-5 1.0120e-4 5.2849e-5 0 0 0"/>
+                    <joint name="joint_F_wheel" type="hinge" axis="0 1 0" damping="0.00005"/>
+                    <geom mesh="F_wheel" class="visual_tire" material="F_wheel_tex"/>
+                    <!-- <geom pos="0 0.0045 0" name="col_F_wheel" class="collision_tire" zaxis="0 1 0" friction="0.0 0.0 0.001"/> -->
+                    <geom type="box" size="0.005 0.01 0.002" pos="0.02 0 0" rgba="1 0 0 1"/>
                 </body>
             </body>
             <body name="R_wheel" pos="0 -0.027 0">
-                <!-- <inertial pos="0 0.027733 0" mass="135.6"
-                        fullinertia="4.177 7.665 4.177 0 0 0"/> -->
-                <joint name="joint_R_wheel" type="hinge" axis="0 1 0"/>
-                <geom mesh="R_wheel" class="stl_tire" friction="1.0 0.005 0.0001"/>
+                <inertial pos="0 0.002777 0" mass="0.148797" 
+                    fullinertia="4.5897e-5 8.4246e-5 4.5897e-5 0 0 0"/>
+                <joint name="joint_R_wheel" type="hinge" axis="0 1 0" damping="0.00005"/>
+                <geom mesh="R_wheel" class="visual_tire" material="F_wheel_tex"/>
+                <!-- <geom name="col_R_wheel" class="collision_tire" zaxis="0 1 0" friction="0.5 0.1 0.001"/> -->
+                <geom type="box" size="0.005 0.005 0.002" pos="0.02 -0.002 0" rgba="1 0 0 1"/>
             </body>
         </body>              
     </worldbody>
     <actuator>
         <position name="fork" joint="joint_fork"/>
-        <motor joint="joint_R_wheel" ctrlrange="-0.021 0.021"/>
+        <motor joint="joint_F_wheel" ctrlrange="-10 10"/>
+        <motor joint="joint_R_wheel" ctrlrange="-10 10"/>
     </actuator>
     <sensor>
         <!-- <jointpos name="F_wheel_pos" joint="F_wheel_joint"/> -->
-        <jointpos name="F_wheel_pos" joint="joint_F_wheel"/>
-        <jointvel name="F_wheel_vel" joint="joint_F_wheel"/>
-        <jointpos name="R_wheel_pos" joint="joint_R_wheel"/>
-        <jointvel name="R_wheel_vel" joint="joint_R_wheel"/>
+        <jointpos name="F_wheel_pos" joint="joint_fork" noise="0.0001"/>
+        <jointvel name="F_wheel_vel" joint="joint_fork" noise="0.001"/>
+        <jointpos name="R_wheel_pos" joint="joint_R_wheel" noise="0.0001"/>
+        <jointvel name="R_wheel_vel" joint="joint_R_wheel" noise="0.001"/>
         <accelerometer name="imu" site="imu_site"/>
-        <gyro name="imu_gyro" site="imu_site"/>
+        <framequat name="imu_quat" objtype="site" objname="imu_site" noise="0.01"/>
+        <gyro name="imu_gyro" site="imu_site" noise="0.005"/>
     </sensor>
 </mujoco>
