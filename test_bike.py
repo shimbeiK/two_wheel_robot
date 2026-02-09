@@ -13,7 +13,9 @@ import time
 from madgwick import MadgwickFilter
 
 # XMLファイルを読み込み
-MODEL_PATH = "sim_env/bike.xml"
+MODEL_PATH = "two_wheel_robot/sim_env/bike.xml"
+MODEL_PATH = "mjcf2/scene.xml"
+init_angle = -45  # フォークの初期角度設定(deg)
 model = mujoco.MjModel.from_xml_path(MODEL_PATH)
 data = mujoco.MjData(model)
 
@@ -24,7 +26,9 @@ for i, p in enumerate(model.pair_geom1):
     g2 = model.pair_geom2[i]
 
     # 例: geom1="wheel", geom2="body" のペアだけ無効化
-    if model.geom(g1).name == "fork" and model.geom(g2).name == "F_wheel":
+    if model.geom(g1).name == "tire_holder" and model.geom(g2).name == "tire_top":
+        model.pair_contype[i] = 0    # 0 → 接触生成しない
+    if model.geom(g1).name == "body_obj" and model.geom(g2).name == "tire_back":
         model.pair_contype[i] = 0    # 0 → 接触生成しない
 
 # 1. センサーID
@@ -45,7 +49,7 @@ adr_gyro  = model.sensor_adr[id_gyro]
 
 dt = 0.01
 a = 45
-num = -0.21
+num = 0.021
 madgwick_filter = MadgwickFilter(model.opt.timestep, gyro_meas_error=1.0)
 print(model.opt.timestep)
 print(model.nu)
@@ -68,6 +72,7 @@ def observe():
         data.sensordata[adr_acc+1],
         data.sensordata[adr_acc+2]
     )
+
     obs['imu'] = madgwick_filter.get_rpy_degrees()
     obs['body_pos'] = data.qpos.copy()
     obs['body_arg'] = data.qvel.copy()
@@ -86,11 +91,16 @@ counter = 0
 # ビューアを起動
 with mujoco.viewer.launch_passive(model, data) as viewer:
     print("Viewer started. Press Ctrl+C to exit.")
-    # data.qpos[7] = np.deg2rad(45)
     # data.qpos[4] = np.deg2rad(10)
-    data.qpos[7] = np.deg2rad(-45)
+    data.qpos[4] = np.deg2rad(0)
+    # if(data.qpos.shape[0] == 8):
+    #     data.qpos[7] = np.deg2rad(init_angle)
+    # elif(data.qpos.shape[0] == 9):
+    #     data.qpos[8] = np.deg2rad(init_angle)
+    data.qpos[8] = np.deg2rad(init_angle)
     # data.ctrl[1] = 0.2   # 後輪トルク
     mujoco.mj_forward(model, data)
+    viewer.opt.flags[mujoco.mjtVisFlag.mjVIS_CONTACTFORCE] = True
 
     # 時間設定
     print(model.opt.timestep)
@@ -98,123 +108,39 @@ with mujoco.viewer.launch_passive(model, data) as viewer:
     t = t0
     while viewer.is_running():
         a += 1
-        print(num)
-        if abs(a) >= 50:
+        # print(num)
+        if abs(a) >= 200:
             num = -num
             a=0
 
-        time.sleep(0.01)
+        time.sleep(0.002)
         # 1. 制御入力
-        data.ctrl[0] = np.deg2rad(-45)    # fork の角度目標
-        data.ctrl[1] = -0.21   # 後輪トルク
+        data.ctrl[0] = np.deg2rad(init_angle)    # fork の角度目標
+        # data.ctrl[1] = -0.084   # 後輪トルク
+        data.ctrl[2] = num   # 後輪トルク
         # data.ctrl[2] = 0.1     # 後輪トルク
 
         # 2. 1 ステップ進める
         mujoco.mj_step(model, data)
         obs = observe()
 
-        if(counter == 10):
+        if(counter % 10 == 1):
             print("obs['imu'] =", obs['imu'])
+            # if abs(obs['imu'][0]) > 45:
+            #     print(counter, "倒れた")
+            #     time.sleep(10)
             body_pos_x = data.qpos.copy()[0]
             body_pos_y = data.qpos.copy()[1]
+
             print(np.sqrt(body_pos_x**2 + body_pos_y**2))
+            print("obs['imu'] =", obs['imu'])
             # print("obs['body_pos'] =", obs['body_pos'])
             # print("obs['body_arg'] =", obs['body_arg'])
             # print("obs['F_motor_pos'] =", np.rad2deg(obs['F_motor_pos']))
             # print("obs['F_motor_vel'] =", obs['F_motor_vel'])
             # print("obs['R_motor_pos'] =", np.rad2deg((obs['R_motor_pos']))
             # print("obs['R_motor_vel'] =", obs['R_motor_vel'])
-            counter = 0
         counter += 1
         # print(counter)
 
         viewer.sync()    
-    # # 制御ループ
-    # while viewer.is_running():
-    #     a += 5
-    #     print(a)
-    #     # 一定時間シミュレーションを進める
-    #     while(time.time() - t < model.opt.timestep * 100):
-    #         mujoco.mj_step(model, data)
-    #         viewer.sync()
-    #         time.sleep(model.opt.timestep / 10)  # 少し待つことでCPU負荷を軽減
-
-    #     data.ctrl[0] = np.deg2rad(a)
-    #     data.ctrl[1] = 0.021
-    #     # 制御入力の設定
-    #     motor_controll()
-    #     obs = observe()
-    #     print("obs['imu'] =", obs['imu'])
-    #     print("obs['body_pos'] =", obs['body_pos'])
-    #     print("obs['body_arg'] =", obs['body_arg'])
-    #     print("obs['F_motor_pos'] =", obs['F_motor_pos'])
-    #     print("obs['F_motor_vel'] =", obs['F_motor_vel'])
-    #     print("obs['R_motor_pos'] =", obs['R_motor_pos'])
-    #     print("obs['R_motor_vel'] =", obs['R_motor_vel'])
-
-    #     t = time.time()
-    #     # 経過時間
-    #     # print("Elapsed time:", time.time() - t0)
-
-
-
-# import mujoco
-# import mujoco.viewer
-# import numpy as np
-# import time
-# from madgwick import MadgwickFilter
-
-# # XMLファイルを読み込み
-# MODEL_PATH = "sim_env/test.xml"
-# model = mujoco.MjModel.from_xml_path(MODEL_PATH)
-# data = mujoco.MjData(model)
-
-
-# dt = 0.01
-# a = 45
-# num = 0.01
-# madgwick_filter = MadgwickFilter(model.opt.timestep, gyro_meas_error=1.0)
-# print(model.opt.timestep)
-# print(model.nu)
-# for i in range(model.nu):
-#     data.ctrl[i] = 0.0  # 初期化
-
-# def clamp(value, min_value, max_value):
-#     return max(min(value, max_value), min_value)
-
-
-# obs = {'imu': None, 'body_pos': None, 'body_arg': None, 'F_motor_pos': None, 'F_motor_arg': None, 'R_motor_pos': None, 'R_motor_arg': None}
-# # シミュレーションデータの観測：IMU, 本体の位置、向き、モータの回転角位置、速度、角速度
-# # モータへの出力
-# def motor_controll():
-#     pass
-
-# counter = 0
-# # ビューアを起動
-# with mujoco.viewer.launch_passive(model, data) as viewer:
-#     print("Viewer started. Press Ctrl+C to exit.")
-#     # data.qpos[7] = np.deg2rad(45)
-#     data.qpos[0] = np.deg2rad(0)
-#     mujoco.mj_forward(model, data)
-
-#     # 時間設定
-#     print(model.opt.timestep)
-#     t0 = time.time()
-#     t = t0
-#     while viewer.is_running():
-#         # a += num
-#         # # print(a)
-#         # if abs(a) >= 80:
-#         #     num = -num
-
-#         # time.sleep(0.01)
-#         # 1. 制御入力
-#         data.ctrl[0] = np.deg2rad(10)    # fork の角度目標
-#         data.ctrl[1] = 0.06     # 後輪トルク
-
-#         # 2. 1 ステップ進める
-#         mujoco.mj_step(model, data)
-
-#         # print(counter)
-
-#         viewer.sync()    

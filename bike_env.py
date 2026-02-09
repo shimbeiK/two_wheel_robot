@@ -15,7 +15,7 @@ class StandingEnv(gym.Env):
         "render_modes": ["human", "rgb_array"],
         "render_fps": 50,
     }
-    # ハイパーパラメータを取得
+    # ハイパーパラメータを取得(from json file)
     current_dir = os.path.dirname(os.path.abspath(__file__))
     json_path = os.path.join(current_dir, "parameters_ppo.json")
     with open(json_path, 'r') as f:
@@ -40,7 +40,7 @@ class StandingEnv(gym.Env):
         self.max_step = max_step
         self.step_count = 0
 
-        self.angle_threshold = np.pi/2  # radians
+        self.angle_threshold = np.pi/4  # radians
         self.pos_threshold = 0.8      # meters
         # self.x_threshold = 0.8     # meters
 
@@ -51,9 +51,11 @@ class StandingEnv(gym.Env):
         self.viewer = None
         self.renderer = None        
         self.RENDING = 0
-        self.MAX_TRQUE = 0.21  # 最大トルク
+        self.MAX_TRQUE = 0.042  # 最大トルク
         self.counter = 0
-        self.max_angle = 0 * (np.pi / 180)
+        self.max_angle = 90 * (np.pi / 180)
+        action_high = np.array([self.max_angle, self.MAX_TRQUE], dtype=np.float32)
+        # self.action_space = spaces.Box(-action_high, action_high, dtype=np.float32)
         self.action_space = spaces.Box(-self.MAX_TRQUE, self.MAX_TRQUE, dtype=np.float32)
 
         # 観測空間：位置、速度、角度、角速度
@@ -101,20 +103,21 @@ class StandingEnv(gym.Env):
     # バイクの傾きと位置の変化から報酬を決定
     def _reward(self, obs, action):
         imu, body_pos_x, body_pos_y, Ac_motor_vel = obs
-        reward = 10 - 6*abs(imu) / self.angle_threshold -4* np.sqrt(body_pos_x**2 + body_pos_y**2) / self.pos_threshold
+        reward = 10 - 10*abs(imu) / self.angle_threshold -0* np.sqrt(body_pos_x**2 + body_pos_y**2) / self.pos_threshold
         # reward = reward - 2 * (np.sign(imu) != np.sign(action))
 
         return max(0, reward / 10)
 
     def step(self, action):
         # print(action)
+        # target_angle = action[0]
         target_torque = action
         # for i in range(self.frame_skip):
         #     self.data.ctrl[0] = np.deg2rad(-45)
         #     self.data.ctrl[1] = target_torque
         #     mujoco.mj_step(self.model, self.data)
-        self.data.ctrl[0] = np.deg2rad(-45)
-        self.data.ctrl[1] = target_torque
+        self.data.ctrl[0] = np.deg2rad(60)
+        self.data.ctrl[2] = target_torque
         mujoco.mj_step(self.model, self.data)
                 
         self.step_count += 1
@@ -139,10 +142,12 @@ class StandingEnv(gym.Env):
         super().reset(seed=seed)
         mujoco.mj_resetData(self.model, self.data)
         # self.madgwick_filter = MadgwickFilter(self.model.opt.timestep * self.frame_skip, gyro_meas_error=1.0)
-        self.madgwick_filter = MadgwickFilter(self.model.opt.timestep, gyro_meas_error=1.0)
-        self.data.qpos[7] = np.deg2rad(-45)
+        for _ in range(50):
+            self.madgwick_filter = MadgwickFilter(self.model.opt.timestep, gyro_meas_error=1.0)
+            mujoco.mj_forward(self.model, self.data)
+        self.data.qpos[8] = np.deg2rad(-60)
         angle = np.random.uniform(-self.max_angle, self.max_angle)
-        self.data.qpos[4] = np.deg2rad(angle)
+        self.data.qpos[4] = np.deg2rad(1)
 
         self.step_count = 0
         mujoco.mj_forward(self.model, self.data)

@@ -6,6 +6,7 @@ import mujoco, time
 import mujoco.viewer
 from stable_baselines3.common.vec_env import DummyVecEnv
 from stable_baselines3.common.vec_env import SubprocVecEnv
+from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.callbacks import BaseCallback
 
 class RenderCallback(BaseCallback):
@@ -18,21 +19,22 @@ class RenderCallback(BaseCallback):
         self.env.render()
         return True
     
-MODEL_PATH = "sim_env/bike.xml"
+MODEL_PATH = "mjcf2/scene.xml"
 model = mujoco.MjModel.from_xml_path(MODEL_PATH)
 data = mujoco.MjData(model)
 # 接触全体を無効化
 # model.opt.disableflags |= mujoco.mjtDisableBit.mjDSBL_CONTACT
-for i, p in enumerate(model.pair_geom1):
-    g1 = model.pair_geom1[i]
-    g2 = model.pair_geom2[i]
+# for i, p in enumerate(model.pair_geom1):
+#     g1 = model.pair_geom1[i]
+#     g2 = model.pair_geom2[i]
 
-    # 例: geom1="wheel", geom2="body" のペアだけ無効化
-    if model.geom(g1).name == "fork" and model.geom(g2).name == "F_wheel":
-        model.pair_contype[i] = 0    # 0 → 接触生成しない
-        
-env = DummyVecEnv([lambda: Monitor(StandingEnv(model, data, render_mode="human"))])
+#     # 例: geom1="wheel", geom2="body" のペアだけ無効化
+#     if model.geom(g1).name == "tire_holder" and model.geom(g2).name == "tire_top":
+#         model.pair_contype[i] = 0    # 0 → 接触生成しない
 
+# env = DummyVecEnv([lambda: Monitor(StandingEnv(model, data, render_mode="human"))])
+# env = make_vec_env(lambda: Monitor(StandingEnv(model, data, render_mode="human")), n_envs=1)    
+env = make_vec_env(lambda: Monitor(StandingEnv(model, data)), n_envs=16)    
 render_callback = RenderCallback(env)
 ppo_model = PPO(
     "MlpPolicy",
@@ -41,6 +43,7 @@ ppo_model = PPO(
         "net_arch": [64, 64],
         "log_std_init": 0.3
     },
+    device="cpu",  
     learning_rate=3e-4,
     n_steps=8192,                # ← 増やすと学習安定
     batch_size=64,
