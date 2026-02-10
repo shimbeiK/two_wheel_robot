@@ -97,7 +97,6 @@ class StandingEnv(gym.Env):
         body_pos_y = self.data.qpos.copy()[1]
         Ac_motor_vel = self.data.sensordata[self.adr_F_vel]  # 0〜2πに正規化 
         # print(np.deg2rad(imu[0])) 
-
         return np.array([np.deg2rad(imu[0]), body_pos_x, body_pos_y, Ac_motor_vel], dtype=np.float32)
 
     # バイクの傾きと位置の変化から報酬を決定

@@ -30,7 +30,6 @@ with mujoco.viewer.launch_passive(model, data) as viewer:
     viewer.opt.flags[mujoco.mjtVisFlag.mjVIS_CONTACTFORCE] = True
 
     while viewer.is_running():
-
         time.sleep(0.002)
         # 1. 制御入力
         data.ctrl[0] = np.deg2rad(init_angle)    # fork の角度目標

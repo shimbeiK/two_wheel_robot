@@ -101,8 +101,9 @@ with mujoco.viewer.launch_passive(model, data) as viewer:
     # data.ctrl[1] = 0.2   # 後輪トルク
     mujoco.mj_forward(model, data)
     viewer.opt.flags[mujoco.mjtVisFlag.mjVIS_CONTACTFORCE] = True
+    
 
-    # 時間設定
+    # 時間設定 
     print(model.opt.timestep)
     t0 = time.time()
     t = t0
