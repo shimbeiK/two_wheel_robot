@@ -23,7 +23,11 @@ counter = 0
 # ビューアを起動
 with mujoco.viewer.launch_passive(model, data) as viewer:
     print("Viewer started. Press Ctrl+C to exit.")
-    data.qpos[4] = np.deg2rad(1)
+    data.qpos[3:7] = [1, 0, 0, 0]
+
+    # 2. Define the Euler rotation (roll, pitch, yaw)
+    # converting 45 degrees pitch to quaternion
+    mujoco.mju_euler2Quat(data.qpos[3:7], np.array([np.deg2rad(3), 0, 0]), "xyz")    
     data.qpos[8] = np.deg2rad(init_angle)
     # data.ctrl[1] = 0.2   # 後輪トルク
     mujoco.mj_forward(model, data)

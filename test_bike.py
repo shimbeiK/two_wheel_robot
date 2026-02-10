@@ -11,6 +11,7 @@ import mujoco.viewer
 import numpy as np
 import time
 from madgwick import MadgwickFilter
+from scipy.spatial.transform import Rotation as R
 
 # XMLファイルを読み込み
 MODEL_PATH = "two_wheel_robot/sim_env/bike.xml"
@@ -72,8 +73,11 @@ def observe():
         data.sensordata[adr_acc+1],
         data.sensordata[adr_acc+2]
     )
-
-    obs['imu'] = madgwick_filter.get_rpy_degrees()
+    rotmat = data.xmat[1].reshape(3, 3)
+    rot = R.from_matrix(rotmat)
+    angle = rot.as_euler('xyz', degrees=False)
+    # obs['imu'] = madgwick_filter.get_rpy_degrees()
+    obs['imu'] = angle
     obs['body_pos'] = data.qpos.copy()
     obs['body_arg'] = data.qvel.copy()
     obs['F_motor_pos'] = data.sensordata[adr_F_pos]
@@ -91,19 +95,22 @@ counter = 0
 # ビューアを起動
 with mujoco.viewer.launch_passive(model, data) as viewer:
     print("Viewer started. Press Ctrl+C to exit.")
-    # data.qpos[4] = np.deg2rad(10)
-    data.qpos[4] = np.deg2rad(0)
+    # data.qpos[4] = np.deg2rad(20)
     # if(data.qpos.shape[0] == 8):
     #     data.qpos[7] = np.deg2rad(init_angle)
     # elif(data.qpos.shape[0] == 9):
     #     data.qpos[8] = np.deg2rad(init_angle)
     data.qpos[8] = np.deg2rad(init_angle)
+    data.qpos[3:7] = [1, 0, 0, 0]
+ 
+    # 2. Define the Euler rotation (roll, pitch, yaw)
+    # converting 45 degrees pitch to quaternion
+    mujoco.mju_euler2Quat(data.qpos[3:7], np.array([np.deg2rad(30), 0, 0]), "xyz")    
     # data.ctrl[1] = 0.2   # 後輪トルク
     mujoco.mj_forward(model, data)
     viewer.opt.flags[mujoco.mjtVisFlag.mjVIS_CONTACTFORCE] = True
-    
 
-    # 時間設定 
+    # 時間設定
     print(model.opt.timestep)
     t0 = time.time()
     t = t0
@@ -124,17 +131,20 @@ with mujoco.viewer.launch_passive(model, data) as viewer:
         # 2. 1 ステップ進める
         mujoco.mj_step(model, data)
         obs = observe()
+        if counter == 0:
+            print("Initial observation:", np.rad2deg(obs['imu']))
+            time.sleep(2)
 
         if(counter % 10 == 1):
-            print("obs['imu'] =", obs['imu'])
+            # print("obs['imu'] =", obs['imu'])
             # if abs(obs['imu'][0]) > 45:
             #     print(counter, "倒れた")
             #     time.sleep(10)
             body_pos_x = data.qpos.copy()[0]
             body_pos_y = data.qpos.copy()[1]
 
-            print(np.sqrt(body_pos_x**2 + body_pos_y**2))
-            print("obs['imu'] =", obs['imu'])
+            # print(np.sqrt(body_pos_x**2 + body_pos_y**2))
+            # print("obs['imu'] =", obs['imu'])
             # print("obs['body_pos'] =", obs['body_pos'])
             # print("obs['body_arg'] =", obs['body_arg'])
             # print("obs['F_motor_pos'] =", np.rad2deg(obs['F_motor_pos']))

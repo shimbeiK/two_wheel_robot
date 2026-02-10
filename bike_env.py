@@ -92,7 +92,11 @@ class StandingEnv(gym.Env):
             self.data.sensordata[self.adr_acc+1],
             self.data.sensordata[self.adr_acc+2]
         )
-        imu = self.madgwick_filter.get_rpy_degrees()  # 0〜2πに正規化 
+        rotmat = self.data.xmat[1].reshape(3, 3)
+        rot = R.from_matrix(rotmat)
+        angle = rot.as_euler('xyz', degrees=False)
+        imu = np.rad2deg(angle)  # Convert to radians
+        # imu = self.madgwick_filter.get_rpy_degrees()  # 0〜2πに正規化 
         body_pos_x = self.data.qpos.copy()[0]
         body_pos_y = self.data.qpos.copy()[1]
         Ac_motor_vel = self.data.sensordata[self.adr_F_vel]  # 0〜2πに正規化 
@@ -102,25 +106,37 @@ class StandingEnv(gym.Env):
     # バイクの傾きと位置の変化から報酬を決定
     def _reward(self, obs, action):
         imu, body_pos_x, body_pos_y, Ac_motor_vel = obs
-        reward = 10 - 10*abs(imu) / self.angle_threshold -0* np.sqrt(body_pos_x**2 + body_pos_y**2) / self.pos_threshold
-        # reward = reward - 2 * (np.sign(imu) != np.sign(action))
-
-        return max(0, reward / 10)
+        """
+        reward = 2.0
+        # reduce reward when the torque direction is opposite to the lean direction
+        if np.sign(imu + np.deg2rad(4.0)) != np.sign(action):
+            reward -= abs(imu + np.deg2rad(4.0))
+        # reduce reward when the angle of lean is large
+        reward -= abs(imu + np.deg2rad(4.0)) / self.angle_threshold
+        # reduce reward when leaning body is early
+        reward += self.step_count
+        # return max(0, reward)
+        return reward
+    """
+        return self.step_count
 
     def step(self, action):
         # print(action)
         # target_angle = action[0]
         target_torque = action
+        # print(action)
         # for i in range(self.frame_skip):
         #     self.data.ctrl[0] = np.deg2rad(-45)
         #     self.data.ctrl[1] = target_torque
         #     mujoco.mj_step(self.model, self.data)
-        self.data.ctrl[0] = np.deg2rad(60)
+        self.data.ctrl[0] = np.deg2rad(-60)
         self.data.ctrl[2] = target_torque
         mujoco.mj_step(self.model, self.data)
                 
         self.step_count += 1
         obs = self._get_obs()
+        # if(self.step_count == 1):
+        #     print("imu =", np.rad2deg(obs[0]))
         reward = self._reward(obs, target_torque)
 
         done = bool(
@@ -129,6 +145,11 @@ class StandingEnv(gym.Env):
             np.sqrt(obs[1]**2 + obs[2]**2) > self.pos_threshold or
             self.step_count >= self.max_step
         )
+
+        if done:
+            reward += self.step_count / 10
+            # print(reward)
+            # print(self.step_count)
         # 辞書の中にデータを入れる
         info = {
             "mj_data": self.data, 
@@ -146,7 +167,8 @@ class StandingEnv(gym.Env):
             mujoco.mj_forward(self.model, self.data)
         self.data.qpos[8] = np.deg2rad(-60)
         angle = np.random.uniform(-self.max_angle, self.max_angle)
-        self.data.qpos[4] = np.deg2rad(1)
+        self.data.qpos[3:7] = [1, 0, 0, 0]
+        mujoco.mju_euler2Quat(self.data.qpos[3:7], np.array([np.deg2rad(4), 0, 0]), "xyz")    
 
         self.step_count = 0
         mujoco.mj_forward(self.model, self.data)
