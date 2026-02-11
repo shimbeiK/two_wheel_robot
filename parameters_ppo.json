@@ -7,9 +7,9 @@
         "buffer_size": 50000,
         "batch_size": 64,
         "td_interval": 1000,
-        "input_size": 4,
+        "input_size": 5,
         "action_size": 2047, 
-        "max_step": 100000,
+        "max_step": 10000,
         "per_alpha": 0.6,
         "per_beta": 0.4,
         "per_beta_increment": 0.00001

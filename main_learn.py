@@ -22,6 +22,8 @@ class RenderCallback(BaseCallback):
 MODEL_PATH = "mjcf2/scene.xml"
 model = mujoco.MjModel.from_xml_path(MODEL_PATH)
 data = mujoco.MjData(model)
+log_dir = "./tboard_logs/"
+timestamp = time.strftime("%Y%m%d-%H%M")
 # 接触全体を無効化
 # model.opt.disableflags |= mujoco.mjtDisableBit.mjDSBL_CONTACT
 # for i, p in enumerate(model.pair_geom1):
@@ -33,8 +35,14 @@ data = mujoco.MjData(model)
 #         model.pair_contype[i] = 0    # 0 → 接触生成しない
 
 # env = DummyVecEnv([lambda: Monitor(StandingEnv(model, data, render_mode="human"))])
-# env = make_vec_env(lambda: Monitor(StandingEnv(model, data, render_mode="human")), n_envs=1)    
-env = make_vec_env(lambda: Monitor(StandingEnv(model, data)), n_envs=16)    
+# env = make_vec_env(lambda: Monitor(StandingEnv(model, data, render_mode="rgb_array")), n_envs=1)    
+# env = make_vec_env(lambda: Monitor(StandingEnv(model, data)), n_envs=16)    
+env = make_vec_env(
+    StandingEnv, 
+    n_envs=16, 
+    env_kwargs={"xml_path": MODEL_PATH, 
+    "render_mode": None})
+
 render_callback = RenderCallback(env)
 ppo_model = PPO(
     "MlpPolicy",
@@ -46,17 +54,19 @@ ppo_model = PPO(
     device="cpu",  
     learning_rate=3e-4,
     n_steps=8192,                # ← 増やすと学習安定
-    batch_size=64,
+    batch_size=256,
     gamma=0.99,
-    gae_lambda=0.3,
-    clip_range=0.5,              # ← 緩めに探索させる
+    gae_lambda=0.95,
+    clip_range=0.3,              # ← better
+    # clip_range=0.5,              # ← 緩めに探索させる
     normalize_advantage=True,    # ← Trueにすべし
-    verbose=1
+    verbose=1,
+    tensorboard_log=log_dir
 )
 
 # XMLファイルを読み込み
 # MODEL_PATH = "sim_env/bike.xml"
 time.sleep(0.1)
-ppo_model.learn(total_timesteps=1000000, callback=render_callback)
+ppo_model.learn(total_timesteps=6000000, callback=render_callback)
 
-ppo_model.save("ppo_standing")
+ppo_model.save(f"ppo_standing_{timestamp}")

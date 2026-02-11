@@ -32,10 +32,13 @@ class StandingEnv(gym.Env):
                 "max_step": json_param["max_step"]        
     }
 
-    def __init__(self, model, data, render_mode=None, max_step=parameters["max_step"]):
+    # def __init__(self, model, data, render_mode=None, max_step=parameters["max_step"]):
+    def __init__(self, xml_path, render_mode=None, max_step=parameters["max_step"]):
         # super(StandingEnv(), self).__init__(gym.env)
-        self.model = model
-        self.data = data
+        self.model = mujoco.MjModel.from_xml_path(xml_path)
+        self.data = mujoco.MjData(self.model)
+        # self.model = model
+        # self.data = data
         self.frame_skip = 0
         self.max_step = max_step
         self.step_count = 0
@@ -51,9 +54,7 @@ class StandingEnv(gym.Env):
         # 2. レンダラーとビューワーは初期値 None (使う時に作成する "Lazy initialization")
         self.viewer = None
         self.renderer = None        
-        self.RENDING = 0
         self.MAX_TRQUE = 0.1  # 最大トルク
-        self.counter = 0
         self.max_angle = 90 * (np.pi / 180)
         action_high = np.array([self.max_angle, self.MAX_TRQUE], dtype=np.float32)
         # self.action_space = spaces.Box(-action_high, action_high, dtype=np.float32)
@@ -81,7 +82,7 @@ class StandingEnv(gym.Env):
         self.adr_acc   = self.model.sensor_adr[self.id_acc]
         self.adr_gyro  = self.model.sensor_adr[self.id_gyro]
         # self.madgwick_filter = MadgwickFilter(model.opt.timestep * self.frame_skip, gyro_meas_error=1.0)
-        self.madgwick_filter = MadgwickFilter(model.opt.timestep, gyro_meas_error=1.0)
+        self.madgwick_filter = MadgwickFilter(self.model.opt.timestep, gyro_meas_error=1.0)
 
     # センサから観測する。位置はMujoco環境から得る
     def _get_obs(self):
@@ -112,18 +113,21 @@ class StandingEnv(gym.Env):
     # バイクの傾きと位置の変化から報酬を決定
     def _reward(self, obs, action):
         imu, body_pos_x, body_pos_y, angular_vel, angular_acc = obs
-        """
-        reward = 2.0
+        reward = 0.0
+        # """ 
         # reduce reward when the torque direction is opposite to the lean direction
-        if np.sign(imu + np.deg2rad(4.0)) != np.sign(action):
-            reward -= abs(imu + np.deg2rad(4.0))
-        # reduce reward when the angle of lean is large
-        reward -= abs(imu + np.deg2rad(4.0)) / self.angle_threshold
-        # reduce reward when leaning body is early
-        reward += self.step_count
-        # return max(0, reward)
+        # if np.sign(imu + np.deg2rad(4.0)) != np.sign(action):
+        #     reward -= 1.0 * (abs(abs((imu+np.deg2rad(4.0))/self.angle_threshold) 
+        #                   + abs(action/self.MAX_TRQUE)))
+
+        # increase reward when the angle of lean is minimized
+        reward += -5*(abs(imu) - self.angle_threshold)
+
+        # reduce reward when position is differ from center
+        reward -= 50.0 * np.sqrt(body_pos_x**2 + body_pos_y**2)
+
         return reward
-    """
+        # """   
         return self.step_count / 100.0
 
     def step(self, action):
@@ -150,9 +154,11 @@ class StandingEnv(gym.Env):
             np.sqrt(obs[1]**2 + obs[2]**2) > self.pos_threshold or
             self.step_count >= self.max_step
         )
-
-        if done:
-            reward += self.step_count / 10
+        # if done:
+        #     if self.step_count > self.max_step*0.9:
+        #         reward += self.max_step * 0.9 / 10.0
+        #     else:
+        #         reward += self.step_count / 10.0
             # print(reward)
             # print(self.step_count)
         # 辞書の中にデータを入れる
@@ -177,6 +183,7 @@ class StandingEnv(gym.Env):
         mujoco.mju_euler2Quat(self.data.qpos[3:7], np.array([np.deg2rad(4), 0, 0]), "xyz")    
 
         self.step_count = 0
+        self.prev_angular_vel = 0
         mujoco.mj_forward(self.model, self.data)
         return self._get_obs(), {}
 
