@@ -39,6 +39,7 @@ class StandingEnv(gym.Env):
         self.frame_skip = 0
         self.max_step = max_step
         self.step_count = 0
+        self.prev_angular_vel = 0.0
 
         self.angle_threshold = np.pi/4  # radians
         self.pos_threshold = 0.8      # meters
@@ -51,7 +52,7 @@ class StandingEnv(gym.Env):
         self.viewer = None
         self.renderer = None        
         self.RENDING = 0
-        self.MAX_TRQUE = 0.042  # 最大トルク
+        self.MAX_TRQUE = 0.1  # 最大トルク
         self.counter = 0
         self.max_angle = 90 * (np.pi / 180)
         action_high = np.array([self.max_angle, self.MAX_TRQUE], dtype=np.float32)
@@ -60,7 +61,8 @@ class StandingEnv(gym.Env):
 
         # 観測空間：位置、速度、角度、角速度
         high = np.array([self.angle_threshold, self.pos_threshold,
-                         self.pos_threshold, np.finfo(np.float32).max], dtype=np.float32)
+                         self.pos_threshold, np.finfo(np.float32).max, 
+                         np.finfo(np.float32).max], dtype=np.float32)
         self.observation_space = spaces.Box(-high, high, dtype=np.float32)
 
         # 1. センサーID
@@ -99,13 +101,17 @@ class StandingEnv(gym.Env):
         # imu = self.madgwick_filter.get_rpy_degrees()  # 0〜2πに正規化 
         body_pos_x = self.data.qpos.copy()[0]
         body_pos_y = self.data.qpos.copy()[1]
-        Ac_motor_vel = self.data.sensordata[self.adr_F_vel]  # 0〜2πに正規化 
+        angular_vel = self.data.sensor("imu_gyro").data.copy()[0]
+        angular_acc = (angular_vel - self.prev_angular_vel) / self.model.opt.timestep   
+        # Update previous value for next loop
+        self.prev_angular_vel = angular_vel
+        # Ac_motor_vel = self.data.sensordata[self.adr_F_vel]  # 0〜2πに正規化 
         # print(np.deg2rad(imu[0])) 
-        return np.array([np.deg2rad(imu[0]), body_pos_x, body_pos_y, Ac_motor_vel], dtype=np.float32)
+        return np.array([np.deg2rad(imu[0]), body_pos_x, body_pos_y, angular_vel, angular_acc], dtype=np.float32)
 
     # バイクの傾きと位置の変化から報酬を決定
     def _reward(self, obs, action):
-        imu, body_pos_x, body_pos_y, Ac_motor_vel = obs
+        imu, body_pos_x, body_pos_y, angular_vel, angular_acc = obs
         """
         reward = 2.0
         # reduce reward when the torque direction is opposite to the lean direction
@@ -118,7 +124,7 @@ class StandingEnv(gym.Env):
         # return max(0, reward)
         return reward
     """
-        return self.step_count
+        return self.step_count / 100.0
 
     def step(self, action):
         # print(action)
@@ -133,11 +139,10 @@ class StandingEnv(gym.Env):
         self.data.ctrl[2] = target_torque
         mujoco.mj_step(self.model, self.data)
                 
-        self.step_count += 1
         obs = self._get_obs()
+        reward = self._reward(obs, target_torque)
         # if(self.step_count == 1):
         #     print("imu =", np.rad2deg(obs[0]))
-        reward = self._reward(obs, target_torque)
 
         done = bool(
             # abs(np.linalg.norm(self.data.xpos[1, :2])) > self.pos_threshold
@@ -155,6 +160,7 @@ class StandingEnv(gym.Env):
             "mj_data": self.data, 
             "other_info": 123
         }
+        self.step_count += 1
 
         return obs, reward, done, False, {}
 

@@ -48,7 +48,7 @@ adr_R_vel = model.sensor_adr[id_R_vel]
 adr_acc   = model.sensor_adr[id_acc]
 adr_gyro  = model.sensor_adr[id_gyro]
 
-dt = 0.01
+dt = model.opt.timestep
 a = 45
 num = 0.021
 madgwick_filter = MadgwickFilter(model.opt.timestep, gyro_meas_error=1.0)
@@ -114,6 +114,8 @@ with mujoco.viewer.launch_passive(model, data) as viewer:
     print(model.opt.timestep)
     t0 = time.time()
     t = t0
+    curr_gyro=0
+    prev_gyro=0
     while viewer.is_running():
         a += 1
         # print(num)
@@ -134,8 +136,15 @@ with mujoco.viewer.launch_passive(model, data) as viewer:
         if counter == 0:
             print("Initial observation:", np.rad2deg(obs['imu']))
             time.sleep(2)
-
+        curr_gyro = data.sensor("imu_gyro").data.copy()[0]
+        angular_accel_est = (curr_gyro - prev_gyro) / dt   
+        # Update previous value for next loop
+        prev_gyro = curr_gyro
         if(counter % 10 == 1):
+            print("dt:", dt)
+            print("diff:", curr_gyro - prev_gyro)
+            print("angular vel:", curr_gyro)
+            print("angular acc:", angular_accel_est)
             # print("obs['imu'] =", obs['imu'])
             # if abs(obs['imu'][0]) > 45:
             #     print(counter, "倒れた")
