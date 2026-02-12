@@ -42,7 +42,9 @@ class StandingEnv(gym.Env):
         self.frame_skip = 0
         self.max_step = max_step
         self.step_count = 0
+        self.l_wheel_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, "tire_top_pitch")
         self.prev_angular_vel = 0.0
+        self.wheel_pos = self.data.qvel[self.model.jnt_dofadr[self.l_wheel_id]]
 
         self.angle_threshold = np.pi/4  # radians
         self.pos_threshold = 0.8      # meters
@@ -95,11 +97,11 @@ class StandingEnv(gym.Env):
             self.data.sensordata[self.adr_acc+1],
             self.data.sensordata[self.adr_acc+2]
         )
-        rotmat = self.data.xmat[1].reshape(3, 3)
-        rot = R.from_matrix(rotmat)
-        angle = rot.as_euler('xyz', degrees=False)
-        imu = np.rad2deg(angle)  # Convert to radians
-        # imu = self.madgwick_filter.get_rpy_degrees()  # 0〜2πに正規化 
+        # rotmat = self.data.xmat[1].reshape(3, 3)
+        # rot = R.from_matrix(rotmat)
+        # angle = rot.as_euler('xyz', degrees=False)
+        # imu = np.rad2deg(angle)  # Convert to radians
+        imu = self.madgwick_filter.get_rpy_degrees()  # 0〜2πに正規化 
         body_pos_x = self.data.qpos.copy()[0]
         body_pos_y = self.data.qpos.copy()[1]
         angular_vel = self.data.sensor("imu_gyro").data.copy()[0]
@@ -124,8 +126,8 @@ class StandingEnv(gym.Env):
         reward += -5*(abs(imu) - self.angle_threshold)
 
         # reduce reward when position is differ from center
-        reward -= 50.0 * np.sqrt(body_pos_x**2 + body_pos_y**2)
-
+        # reward -= 50.0 * np.sqrt(body_pos_x**2 + body_pos_y**2)
+        reward -= 10 * abs(angular_vel)
         return reward
         # """   
         return self.step_count / 100.0
@@ -183,7 +185,8 @@ class StandingEnv(gym.Env):
         mujoco.mju_euler2Quat(self.data.qpos[3:7], np.array([np.deg2rad(4), 0, 0]), "xyz")    
 
         self.step_count = 0
-        self.prev_angular_vel = 0
+        self.wheel_pos = self.data.qvel[self.model.jnt_dofadr[self.l_wheel_id]]
+        self.prev_angular_vel = 0.0
         mujoco.mj_forward(self.model, self.data)
         return self._get_obs(), {}
 
