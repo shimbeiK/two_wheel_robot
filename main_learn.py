@@ -44,29 +44,30 @@ env = make_vec_env(
     "render_mode": None})
 
 render_callback = RenderCallback(env)
-ppo_model = PPO(
-    "MlpPolicy",
-    env,
-    policy_kwargs={
-        "net_arch": [64, 64],
-        "log_std_init": 0.3
-    },
-    device="cpu",  
-    learning_rate=3e-4,
-    n_steps=8192,                # ← 増やすと学習安定
-    batch_size=256,
-    gamma=0.99,
-    gae_lambda=0.95,
-    clip_range=0.3,              # ← better
-    # clip_range=0.5,              # ← 緩めに探索させる
-    normalize_advantage=True,    # ← Trueにすべし
-    verbose=1,
-    tensorboard_log=log_dir
-)
+# ppo_model = PPO(
+#     "MlpPolicy",
+#     env,
+#     policy_kwargs={
+#         "net_arch": [64, 64],
+#         "log_std_init": 0.3
+#     },
+#     device="cpu",  
+#     learning_rate=3e-4,
+#     n_steps=8192,                # ← 増やすと学習安定
+#     batch_size=256,
+#     gamma=0.99,
+#     gae_lambda=0.95,
+#     clip_range=0.3,              # ← better
+#     # clip_range=0.5,              # ← 緩めに探索させる
+#     normalize_advantage=True,    # ← Trueにすべし
+#     verbose=1,
+#     tensorboard_log=log_dir
+# )
 
+ppo_model = PPO.load("two_wheel_robot/results/ppo_standing_20260212-2214", env=env)
 # XMLファイルを読み込み
 # MODEL_PATH = "sim_env/bike.xml"
 time.sleep(0.1)
-ppo_model.learn(total_timesteps=6000000, callback=render_callback)
+ppo_model.learn(total_timesteps=10000000, callback=render_callback, reset_num_timesteps=False)
 
-ppo_model.save(f"ppo_standing_{timestamp}")
+ppo_model.save(f"two_wheel_robot/results/ppo_standing_{timestamp}")

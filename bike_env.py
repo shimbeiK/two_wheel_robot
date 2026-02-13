@@ -127,7 +127,7 @@ class StandingEnv(gym.Env):
 
         # reduce reward when position is differ from center
         # reward -= 50.0 * np.sqrt(body_pos_x**2 + body_pos_y**2)
-        reward -= 10 * abs(angular_vel)
+        reward -= 20 * abs(angular_vel)
         return reward
         # """   
         return self.step_count / 100.0
