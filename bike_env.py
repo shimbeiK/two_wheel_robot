@@ -56,8 +56,9 @@ class StandingEnv(gym.Env):
         # 2. レンダラーとビューワーは初期値 None (使う時に作成する "Lazy initialization")
         self.viewer = None
         self.renderer = None        
-        self.MAX_TRQUE = 0.1  # 最大トルク
+        self.MAX_TRQUE = 0.042  # 最大トルク
         self.max_angle = 90 * (np.pi / 180)
+        self.noise_angle = 1
         action_high = np.array([self.max_angle, self.MAX_TRQUE], dtype=np.float32)
         # self.action_space = spaces.Box(-action_high, action_high, dtype=np.float32)
         self.action_space = spaces.Box(-self.MAX_TRQUE, self.MAX_TRQUE, dtype=np.float32)
@@ -66,6 +67,8 @@ class StandingEnv(gym.Env):
         high = np.array([self.angle_threshold, self.pos_threshold,
                          self.pos_threshold, np.finfo(np.float32).max, 
                          np.finfo(np.float32).max], dtype=np.float32)
+        # high = np.array([self.angle_threshold, np.finfo(np.float32).max, 
+        #                  np.finfo(np.float32).max], dtype=np.float32)
         self.observation_space = spaces.Box(-high, high, dtype=np.float32)
 
         # 1. センサーID
@@ -104,17 +107,19 @@ class StandingEnv(gym.Env):
         imu = self.madgwick_filter.get_rpy_degrees()  # 0〜2πに正規化 
         body_pos_x = self.data.qpos.copy()[0]
         body_pos_y = self.data.qpos.copy()[1]
-        angular_vel = self.data.sensor("imu_gyro").data.copy()[0]
+        angular_vel = self.data.sensor("imu_gyro").data.copy()[0]+np.random.normal(0, 0.01)  # ジャイロのx軸の角速度にノイズを加える
         angular_acc = (angular_vel - self.prev_angular_vel) / self.model.opt.timestep   
         # Update previous value for next loop
         self.prev_angular_vel = angular_vel
         # Ac_motor_vel = self.data.sensordata[self.adr_F_vel]  # 0〜2πに正規化 
         # print(np.deg2rad(imu[0])) 
         return np.array([np.deg2rad(imu[0]), body_pos_x, body_pos_y, angular_vel, angular_acc], dtype=np.float32)
+        return np.array([np.deg2rad(imu[0]), angular_vel, angular_acc], dtype=np.float32)
 
     # バイクの傾きと位置の変化から報酬を決定
     def _reward(self, obs, action):
         imu, body_pos_x, body_pos_y, angular_vel, angular_acc = obs
+        # imu, angular_vel, angular_acc = obs
         reward = 0.0
         # """ 
         # reduce reward when the torque direction is opposite to the lean direction
@@ -180,9 +185,10 @@ class StandingEnv(gym.Env):
             self.madgwick_filter = MadgwickFilter(self.model.opt.timestep, gyro_meas_error=1.0)
             mujoco.mj_forward(self.model, self.data)
         self.data.qpos[8] = np.deg2rad(-60)
-        angle = np.random.uniform(-self.max_angle, self.max_angle)
+        # angle = np.random.uniform(-self.noise_angle + 3.5, self.noise_angle + 3.5)
+        angle = 3.7
         self.data.qpos[3:7] = [1, 0, 0, 0]
-        mujoco.mju_euler2Quat(self.data.qpos[3:7], np.array([np.deg2rad(4), 0, 0]), "xyz")    
+        mujoco.mju_euler2Quat(self.data.qpos[3:7], np.array([np.deg2rad(angle), 0, 0]), "xyz")    
 
         self.step_count = 0
         self.wheel_pos = self.data.qvel[self.model.jnt_dofadr[self.l_wheel_id]]
