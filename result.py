@@ -25,7 +25,7 @@ angular_vel = env.data.sensor("imu_gyro").data.copy()[0]+np.random.normal(0, 0.0
 # --- 2. Load the Trained Model ---
 # Load the zip file you just saved
 # model = PPO.load("two_wheel_robot/results/stop_withCon/20260214-1804_continue", env=env)
-model = PPO.load("two_wheel_robot/results/stop_withCon/20260223-2335_eval/best_model", env=env)
+model = PPO.load("two_wheel_robot/results/stop_withCon_v3/best_model", env=env)
 # model = PPO.load("two_wheel_robot/results/stop_withCon/kourin25/20260222-1110_con.zip", env=env)
 # model = PPO.load("two_wheel_robot/results/stop_ignoreCon/ppo_standing_20260214-1623.zip", env=env)
 # --- 3. Run the Simulation Loop ---
@@ -43,9 +43,9 @@ while True:
     obs, reward, terminated, truncated, info = env.step(action)
     # print("action:", action)
     # print("pos", obs[7], obs[8])
-    # print("action:", np.rad2deg(action[0]), action[1])
-    print("imu", np.rad2deg(obs[0]))
-    print("angular_vel:", prev_angular_vel)
+    print("action:", np.rad2deg(action[0]), action[1])
+    # print("imu", np.rad2deg(obs[0]))
+    # print("angular_vel:", prev_angular_vel)
 
     # Render is often handled automatically by render_mode="human" in gymnasium,
     # but we call it here just in case your custom env requires it.

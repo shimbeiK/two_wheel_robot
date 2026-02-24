@@ -16,26 +16,10 @@ class StandingEnv(gym.Env):
         "render_modes": ["human", "rgb_array"],
         "render_fps": 50,
     }
-    # ハイパーパラメータを取得(from json file)
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    json_path = os.path.join(current_dir, "parameters_ppo.json")
-    with open(json_path, 'r') as f:
-        json_param = json.load(f)["dqn_bike"]
-    parameters = {"lr": json_param["lr"],
-                "gamma": json_param["gamma"],
-                "episodes": json_param["episodes"],
-                "epsilon": json_param["epsilon"],
-                "buffer_size": json_param["buffer_size"],
-                "batch_size": json_param["batch_size"],
-                "td_interval": json_param["td_interval"],
-                "input_size":json_param["input_size"],
-                "action_size": json_param["action_size"],
-                "max_step": json_param["max_step"]        
-    }
 
     # def __init__(self, model, data, render_mode=None, max_step=parameters["max_step"]):
-    def __init__(self, xml_path, render_mode=None, max_step=parameters["max_step"]):
-        # super(StandingEnv(), self).__init__(gym.env)
+    def __init__(self, xml_path, render_mode=None):
+        super().__init__()
         self.model = mujoco.MjModel.from_xml_path(xml_path)
         self.data = mujoco.MjData(self.model)
         # self.model = model
@@ -47,7 +31,7 @@ class StandingEnv(gym.Env):
         self.wheel_pos = self.data.qvel[self.model.jnt_dofadr[self.l_wheel_id]]
         # self.data.qpos[8] = np.deg2rad(0)
         self.data.qpos[8] = np.deg2rad(-60)
-        self.env_cfg, obs_cfg, self.reward_cfg, command_cfg = PythonConfig.get_cfg()
+        self.env_cfg, obs_cfg, self.reward_cfg, command_cfg = PythonConfig.get_cfgs()
 
 
         self.ANGLE_THRESHOLD = self.env_cfg["termination_if_roll_greater_than"]  # radians
@@ -72,7 +56,7 @@ class StandingEnv(gym.Env):
         # 観測空間：位置、速度、角度、角速度
         high = np.array([self.ANGLE_THRESHOLD, np.finfo(np.float32).max, 
                          np.finfo(np.float32).max, 1, 1, 1, 1,
-                         self.POS_THRESHOLD, self.POS_THRESHOLD], dtype=np.float32)
+                         self.POSX_THRESHOLD, self.POSY_THRESHOLD], dtype=np.float32)
                         #  np.finfo(np.float32).max, self.MAX_ANGLE, self.MAX_TORQUE], dtype=np.float32)
         self.observation_space = spaces.Box(-high, high, dtype=np.float32)
 
@@ -89,8 +73,6 @@ class StandingEnv(gym.Env):
         body_pos_x = self.data.qpos.copy()[0]
         body_pos_y = self.data.qpos.copy()[1]
 
-        # Ac_motor_vel = self.data.sensordata[self.adr_F_vel]  # 0〜2πに正規化 
-        # print(np.deg2rad(imu[0])) 
         return np.array([np.deg2rad(imu[0]), angular_vel, angular_acc, action_steer, 
                          action_back, prev_action_steer, prev_action_back, 
                          body_pos_x, body_pos_y], dtype=np.float32)
@@ -101,8 +83,8 @@ class StandingEnv(gym.Env):
         reward = self.reward_cfg["survival_bonus"]  # 生存ボーナス（時間経過に対する報酬）
 
         reward += self.reward_cfg["upright_posture"] * (np.deg2rad(45) - abs(imu)) / np.deg2rad(45)
-        reward += self.reward_cfg["pos_penalty"] * np.sqrt(body_pos_x**2 + body_pos_y**2) / np.sqrt(self.POSX_THRESHOLD**2 + self.POSY_THRESHOLD**2)  # 位置のペナルティ（中心からの距離に比例）
-        reward += self.reward_cfg["angular_vel_penalty"] * abs(angular_vel)
+        reward += self.reward_cfg["pos_penalty"] * (1 - np.sqrt(body_pos_x**2 + body_pos_y**2) / np.sqrt(self.POSX_THRESHOLD**2 + self.POSY_THRESHOLD**2))  # 位置のペナルティ（中心からの距離に比例）
+        reward += self.reward_cfg["angular_vel_penalty"] * (1 - min(5.0, abs(angular_vel)) / 5.0)  # 速度のペナルティ（最大1.0に制限）
         reward += self.reward_cfg["steering_change_penalty"] * max(2, abs(action_steer - prev_action_steer)) / 2  # 急激なステアリング変化を抑制
         reward += self.reward_cfg["torque_change_penalty"] * max(2, abs(action_back - prev_action_back)) / 2    # 急激な後輪トルク変化を抑制
         # reward += 0.5 * (1 - action_steer) # ステアリングの使用を抑制
@@ -115,8 +97,8 @@ class StandingEnv(gym.Env):
         action_angle = action[0]*self.MAX_STEER
         action_torque = action[1]*self.MAX_TORQUE
         if self.env_cfg["action_noise"] == True:
-            action_angle += np.random.normal(0, 1) * self.MAX_STEER / 100  # ステアリングにノイズを加える
-            action_torque += np.random.normal(0, 1) * self.MAX_TORQUE / 100  # トルクにノイズを加える
+            action_angle += np.random.normal(0, 1) * self.MAX_STEER * self.env_cfg["action_noise_range"]  # ステアリングにノイズを加える
+            action_torque += np.random.normal(0, 1) * self.MAX_TORQUE * self.env_cfg["action_noise_range"]  # トルクにノイズを加える
         # print(action)
         self.data.ctrl[0] = action_angle
         self.data.ctrl[1] = action_torque
@@ -133,9 +115,8 @@ class StandingEnv(gym.Env):
                           or abs(obs[8]) > self.POSY_THRESHOLD
                           )
         truncated = bool(self.step_count >= self.MAX_STEP)
-        if truncated or terminated:
-            if self.step_count > 100:
-                reward += 10.0  # 倒れたら大きくペナルティ
+        if truncated:
+            reward += self.reward_cfg["reward_if_truncated"]  # 倒れたら大きくペナルティ
         # print("obs:", obs[0], "terminated:", terminated, "truncated:", truncated)
         # 辞書の中にデータを入れる
         info = {
