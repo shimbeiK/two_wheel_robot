@@ -1,8 +1,9 @@
 from stable_baselines3 import PPO
-from bike_env_v3 import StandingEnv
+from bike_env_v3_NonSteer import StandingEnv
 import mujoco, time, os, pickle, shutil
 from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.callbacks import BaseCallback, EvalCallback
+from stable_baselines3.common.vec_env import SubprocVecEnv
 from cfg_standing import PythonConfig
 
 train_cfg_dict = PythonConfig.get_train_cfg()
@@ -31,42 +32,45 @@ def clean_log_dir(log_dir):
         shutil.rmtree(log_dir)  # 過去のデータが混ざらないようにフォルダごと完全に削除する
     os.makedirs(log_dir, exist_ok=True) # 新しくログ保存用の空フォルダを作成する
 
-clean_log_dir(log_dir) # ログディレクトリのクリーンアップを実行
-# clean_log_dir(save_model_dir) # ベストモデル保存用のサブフォルダもクリーンアップ
 
-# 4. 学習設定のバックアップ保存
-pickle.dump(
-    [env_cfg, obs_cfg, reward_cfg, command_cfg, train_cfg], # 保存する設定データのリスト
-    open(f"{log_dir}/cfgs.pkl", "wb"), # "wb"（バイナリ書き込みモード）でファイルを開いて保存する
-)
+if __name__ == "__main__":
+    clean_log_dir(log_dir) # ログディレクトリのクリーンアップを実行
+    # clean_log_dir(save_model_dir) # ベストモデル保存用のサブフォルダもクリーンアップ
 
-env = make_vec_env(
-    StandingEnv, 
-    n_envs=16, 
-    env_kwargs={"xml_path": MODEL_PATH, 
-    "render_mode": None})
+    # 4. 学習設定のバックアップ保存
+    pickle.dump(
+        [env_cfg, obs_cfg, reward_cfg, command_cfg, train_cfg], # 保存する設定データのリスト
+        open(f"{log_dir}/cfgs.pkl", "wb"), # "wb"（バイナリ書き込みモード）でファイルを開いて保存する
+    )
+    env = make_vec_env(
+        StandingEnv, 
+        n_envs=16, 
+        vec_env_cls=SubprocVecEnv,
+        env_kwargs={"xml_path": MODEL_PATH, 
+        "render_mode": None})
 
-eval_env = make_vec_env(
-    StandingEnv, 
-    n_envs=1, 
-    env_kwargs={"xml_path": MODEL_PATH, 
-    "render_mode": None})
+    eval_env = make_vec_env(
+        StandingEnv, 
+        n_envs=1, 
+        env_kwargs={"xml_path": MODEL_PATH, 
+        "render_mode": None})
 
-render_callback = RenderCallback(env)
+    render_callback = RenderCallback(env)
 
-eval_callback = EvalCallback(
-    eval_env,
-    best_model_save_path=f"two_wheel_robot/results/stop_withCon_v3/",
-    eval_freq=1000,
-    deterministic=True,
-    render=False
-)
+    eval_callback = EvalCallback(
+        eval_env,
+        best_model_save_path=f"two_wheel_robot/results/stop_withCon_v3/",
+        eval_freq=2500,
+        deterministic=True,
+        render=False
+    )
 
-ppo_model = PPO(**train_cfg_dict, env=env)
+    ppo_model = PPO(**train_cfg_dict, env=env)
 
-# ppo_model = PPO.load("two_wheel_robot/results/stop_withCon_v3/kourin21_con.zip", env=env, gamma=0.995)
-time.sleep(0.1)
-# ppo_model.learn(total_timesteps=3000000, callback=eval_callback, reset_num_timesteps=False)
-ppo_model.learn(total_timesteps=10000000, callback=eval_callback)
+    # ppo_model = PPO.load("two_wheel_robot/results/betters/v3_Nonsteer_slowely_back/kourin21_con.zip", env=env)
+    # ppo_model = PPO.load("two_wheel_robot/results/stop_withCon_v3/kourin21_con.zip", env=env)
+    time.sleep(0.1)
+    # ppo_model.learn(total_timesteps=2000000, callback=eval_callback, reset_num_timesteps=False)
+    ppo_model.learn(total_timesteps=5000000, callback=eval_callback)
 
-ppo_model.save(f"two_wheel_robot/results/stop_withCon_v3/kourin21_con.zip")
+    ppo_model.save(f"two_wheel_robot/results/stop_withCon_v3/kourin21_con.zip")

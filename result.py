@@ -3,7 +3,7 @@ import mujoco.viewer
 import time
 import numpy as np
 from stable_baselines3 import PPO
-from bike_env_v3 import StandingEnv
+from bike_env_v3_NonSteer import StandingEnv
 
 # --- 1. Setup the Environment for Evaluation ---
 # We use ONE environment with render_mode="human"
@@ -34,7 +34,7 @@ print("Running trained model... Press Ctrl+C to stop.")
 counter = 0
 while True:
     counter+=1
-    print(counter)
+    # print(counter)
     # Predict the action (deterministic=True gives the 'best' action, False is slightly random)
     action, _ = model.predict(obs, deterministic=True)
     prev_angular_vel = env.data.qvel[env.model.jnt_dofadr[l_wheel_id]]
@@ -43,17 +43,21 @@ while True:
     obs, reward, terminated, truncated, info = env.step(action)
     # print("action:", action)
     # print("pos", obs[7], obs[8])
-    print("action:", np.rad2deg(action[0]), action[1])
+    # print("action:", np.rad2deg(action[0]), action[1])
     # print("imu", np.rad2deg(obs[0]))
+    print(obs[0], action, reward)
+    # print("total_odometory:", env.total_odometory)
     # print("angular_vel:", prev_angular_vel)
+    # print(obs[0], obs[1], obs[3], obs[4], obs[5])
 
     # Render is often handled automatically by render_mode="human" in gymnasium,
     # but we call it here just in case your custom env requires it.
     env.render()
     
     # Slow down slightly to match real-time (optional, depends on your PC speed)
-    time.sleep(0.002)
+    time.sleep(0.01)
 
     if terminated or truncated:
+        print("ouch!")
         obs, _ = env.reset()
         counter = 0
