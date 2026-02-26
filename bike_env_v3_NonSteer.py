@@ -31,7 +31,8 @@ class StandingEnv(gym.Env):
         self.wheel_pos = self.data.qvel[self.model.jnt_dofadr[self.l_wheel_id]]
         # self.data.qpos[8] = np.deg2rad(0)
         self.data.qpos[8] = np.deg2rad(-60)
-        self.total_odometory = 0.0
+        self.total_odometry = 0.0
+        self.prev_odometry = 0.0
 
         self.env_cfg, obs_cfg, self.reward_cfg, command_cfg = PythonConfig.get_cfgs()
 
@@ -78,16 +79,16 @@ class StandingEnv(gym.Env):
         # --- FIX: Ensure the actions are flat numbers (scalars), not arrays ---
         act = float(np.squeeze(action_back))
         prev_act = float(np.squeeze(prev_action_back))
-        self.total_odometory += angular_vel * 3.1 * self.model.opt.timestep * self.frame_skip
+        self.total_odometry += angular_vel * 3.1 * self.model.opt.timestep * self.frame_skip
 
         return np.array([np.deg2rad(imu[0]), angular_vel, angular_acc, 
-                         act, prev_act, self.total_odometory], dtype=np.float32)
+                         act, prev_act, self.total_odometry], dtype=np.float32)
                         #  act, prev_act, body_pos_x, body_pos_y], dtype=np.float32)
 
     # バイクの傾きと位置の変化から報酬を決定
     def _reward(self, obs):
         # imu, angular_vel, angular_acc, action_back, prev_action_back, body_pos_x, body_pos_y = obs
-        imu, angular_vel, angular_acc, action_back, prev_action_back, total_odometory = obs
+        imu, angular_vel, angular_acc, action_back, prev_action_back, total_odometry = obs
         reward = self.reward_cfg["survival_bonus"]  # 生存ボーナス（時間経過に対する報酬）
 
         reward += self.reward_cfg["upright_posture"] * (np.deg2rad(45) - abs(imu)) / np.deg2rad(45)
@@ -97,7 +98,8 @@ class StandingEnv(gym.Env):
         reward += self.reward_cfg["torque_change_penalty"] * max(2, abs(action_back - prev_action_back)) / 2    # 急激な後輪トルク変化を抑制
         # reward += 0.5 * (1 - action_steer) # ステアリングの使用を抑制
         # reward -= 1 * abs(action_back) # 後輪トルクの使用を抑制
-        reward += self.reward_cfg["odometry_penalty"] * total_odometory
+        reward += (abs(total_odometry) - abs(self.prev_odometry)) * self.reward_cfg["odometry_reward"]
+        self.prev_odometry = total_odometry
 
         return reward
 
@@ -152,7 +154,8 @@ class StandingEnv(gym.Env):
         self.wheel_pos = self.data.qvel[self.model.jnt_dofadr[self.l_wheel_id]]
         self.prev_angular_vel = 0.0
         self.prev_action = 0.0
-        self.total_odometory = 0.0
+        self.total_odometry = 0.0
+        self.prev_odometry = 0.0
         mujoco.mj_forward(self.model, self.data)
         return self._get_obs(self.env_cfg["initial_torque"], 0.0), {}
 
