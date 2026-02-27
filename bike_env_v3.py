@@ -26,11 +26,14 @@ class StandingEnv(gym.Env):
         # self.data = data
         self.step_count = 0
         self.l_wheel_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, "tire_back_pitch")
-        self.prev_angular_vel = 0.0
+        self.drive_vel = 0.0
         self.prev_action = [0.0, 0.0]
         self.wheel_pos = self.data.qvel[self.model.jnt_dofadr[self.l_wheel_id]]
         # self.data.qpos[8] = np.deg2rad(0)
         self.data.qpos[8] = np.deg2rad(-60)
+        self.total_odometry = 0.0
+        self.prev_odometry = 0.0
+
         self.env_cfg, obs_cfg, self.reward_cfg, command_cfg = PythonConfig.get_cfgs()
 
 
@@ -49,48 +52,45 @@ class StandingEnv(gym.Env):
         self.MAX_TORQUE = self.env_cfg["drive_torque_scale"]  # 最大トルク
         self.MAX_STEER = self.env_cfg["steering_angle_scale"]
         self.NOISE_ANGLE = self.env_cfg["noise_angle"]  # 初期傾きのノイズ幅（±deg）
-        self.action_space = spaces.Box(-1.0, 1.0, shape=(2,), dtype=np.float32)
+        self.action_space = spaces.Box(-1.0, 1.0, dtype=np.float32)
         # self.action_space = spaces.Box(-action_high, action_high, dtype=np.float32)
         # self.action_space = spaces.Box(-self.MAX_TORQUE, self.MAX_TORQUE, dtype=np.float32)
 
         # 観測空間：位置、速度、角度、角速度
         high = np.array([self.ANGLE_THRESHOLD, np.finfo(np.float32).max, 
-                         np.finfo(np.float32).max, 1, 1, 1, 1,
-                         self.POSX_THRESHOLD, self.POSY_THRESHOLD], dtype=np.float32)
-                        #  np.finfo(np.float32).max, self.MAX_ANGLE, self.MAX_TORQUE], dtype=np.float32)
+                         np.finfo(np.float32).max, np.finfo(np.float32).max]) # 角度、角速度、角加速度、前回のアクション、前々回のアクション、オドメトリ
+                        #  self.POSX_THRESHOLD, self.POSY_THRESHOLD], dtype=np.float32)
         self.observation_space = spaces.Box(-high, high, dtype=np.float32)
 
     # センサから観測する。位置はMujoco環境から得る
-    def _get_obs(self, action_steer, action_back, prev_action_steer, prev_action_back):
+    def _get_obs(self):
         rotmat = self.data.xmat[1].reshape(3, 3)
         rot = R.from_matrix(rotmat)
         angle = rot.as_euler('xyz', degrees=False)
         imu = np.rad2deg(angle)  # Convert to radians
-        angular_vel = self.data.qvel[self.model.jnt_dofadr[self.l_wheel_id]]
-        angular_acc = (angular_vel - self.prev_angular_vel) / (self.model.opt.timestep * self.frame_skip)   
+        angular_vel = angular_vel = self.data.sensor("imu_gyro").data.copy()[0]
+        drive_vel = self.data.qvel[self.model.jnt_dofadr[self.l_wheel_id]]
         # Update previous value for next loop
-        self.prev_angular_vel = angular_vel
-        body_pos_x = self.data.qpos.copy()[0]
-        body_pos_y = self.data.qpos.copy()[1]
+        self.drive_vel = drive_vel
 
-        return np.array([np.deg2rad(imu[0]), angular_vel, angular_acc, action_steer, 
-                         action_back, prev_action_steer, prev_action_back, 
-                         body_pos_x, body_pos_y], dtype=np.float32)
+        # --- FIX: Ensure the actions are flat numbers (scalars), not arrays ---
+        self.total_odometry += drive_vel * 3.1 * self.model.opt.timestep * self.frame_skip
+
+        return np.array([np.deg2rad(imu[0]), angular_vel, drive_vel,
+                         self.total_odometry], dtype=np.float32)
+                        #  act, prev_act, body_pos_x, body_pos_y], dtype=np.float32)
 
     # バイクの傾きと位置の変化から報酬を決定
     def _reward(self, obs):
-        imu, angular_vel, angular_acc, action_steer, action_back, prev_action_steer, prev_action_back, body_pos_x, body_pos_y = obs
+        # imu, angular_vel, angular_acc, action_back, prev_action_back, body_pos_x, body_pos_y = obs
+        imu, angular_vel, action_back, total_odometry = obs
         reward = self.reward_cfg["survival_bonus"]  # 生存ボーナス（時間経過に対する報酬）
-
         reward += self.reward_cfg["upright_posture"] * (np.deg2rad(45) - abs(imu)) / np.deg2rad(45)
-        reward += self.reward_cfg["pos_penalty"] * (1 - np.sqrt(body_pos_x**2 + body_pos_y**2) / np.sqrt(self.POSX_THRESHOLD**2 + self.POSY_THRESHOLD**2))  # 位置のペナルティ（中心からの距離に比例）
-        reward += self.reward_cfg["angular_vel_penalty"] * (1 - min(5.0, abs(angular_vel)) / 5.0)  # 速度のペナルティ（最大1.0に制限）
-        reward += self.reward_cfg["steering_change_penalty"] * max(2, abs(action_steer - prev_action_steer)) / 2  # 急激なステアリング変化を抑制
-        reward += self.reward_cfg["torque_change_penalty"] * max(2, abs(action_back - prev_action_back)) / 2    # 急激な後輪トルク変化を抑制
-        # reward += 0.5 * (1 - action_steer) # ステアリングの使用を抑制
-        # reward -= 1 * abs(action_back) # 後輪トルクの使用を抑制
+        reward += (abs(self.prev_odometry) - abs(total_odometry)) * self.reward_cfg["odometry_penalty"]
+        self.prev_odometry = total_odometry
 
         return reward
+
 
     def step(self, action):
         # print(action)
@@ -106,21 +106,16 @@ class StandingEnv(gym.Env):
             mujoco.mj_step(self.model, self.data)
             # time.sleep(0.002)
                 
-        obs = self._get_obs(action[0], action[1], self.prev_action[0], self.prev_action[1])
-        self.prev_action = [action[0], action[1]]
+        obs = self._get_obs()
         reward = self._reward(obs)
 
-        terminated = bool(abs(obs[0]) > self.ANGLE_THRESHOLD 
-                          or abs(obs[7]) > self.POSX_THRESHOLD
-                          or abs(obs[8]) > self.POSY_THRESHOLD
-                          )
+        terminated = bool(abs(obs[0]) > self.ANGLE_THRESHOLD)
         truncated = bool(self.step_count >= self.MAX_STEP)
-        if truncated:
-            reward += self.reward_cfg["reward_if_truncated"]  # 倒れたら大きくペナルティ
-        # print("obs:", obs[0], "terminated:", terminated, "truncated:", truncated)
+        # if truncated:
+        #     reward += self.reward_cfg["reward_if_truncated"]  # 倒れたら大きくペナルティ
         # 辞書の中にデータを入れる
         info = {
-            # "mj_data": self.data, 
+            # "imu": obs[0], 
             # "other_info": 123
         }
         self.step_count += 1
@@ -144,8 +139,7 @@ class StandingEnv(gym.Env):
         self.prev_angular_vel = 0.0
         self.prev_action = [0.0, 0.0]
         mujoco.mj_forward(self.model, self.data)
-        return self._get_obs(self.env_cfg["initial_steer_deg"], 
-                             self.env_cfg["initial_torque"], 0.0, 0.0), {}
+        return self._get_obs(), {}
 
     def render(self):
         if self.render_mode == "human":

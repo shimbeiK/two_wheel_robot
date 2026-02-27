@@ -4,7 +4,7 @@
 
 import gymnasium as gym
 from gymnasium import spaces
-import mujoco, json
+import mujoco, json, time
 import numpy as np
 import os
 from scipy.spatial.transform import Rotation as R
@@ -39,14 +39,15 @@ class StandingEnv(gym.Env):
         self.data = mujoco.MjData(self.model)
         # self.model = model
         # self.data = data
-        self.frame_skip = 0
-        self.max_step = max_step
+        self.frame_skip = 5
+        self.MAX_STEP = max_step
         self.step_count = 0
         self.l_wheel_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, "tire_top_pitch")
         self.prev_angular_vel = 0.0
         self.wheel_pos = self.data.qvel[self.model.jnt_dofadr[self.l_wheel_id]]
+        self.total_odometory = 0.0
 
-        self.angle_threshold = np.pi/4  # radians
+        self.ANGLE_THRETHOULD = np.pi/6  # radians
         self.pos_threshold = 0.8      # meters
         # self.x_threshold = 0.8     # meters
 
@@ -56,18 +57,18 @@ class StandingEnv(gym.Env):
         # 2. レンダラーとビューワーは初期値 None (使う時に作成する "Lazy initialization")
         self.viewer = None
         self.renderer = None        
-        self.MAX_TRQUE = 0.042  # 最大トルク
+        self.MAX_TORQUE = 0.05  # 最大トルク
         self.max_angle = 90 * (np.pi / 180)
         self.noise_angle = 1
-        action_high = np.array([self.max_angle, self.MAX_TRQUE], dtype=np.float32)
+        action_high = np.array([self.max_angle, self.MAX_TORQUE], dtype=np.float32)
         # self.action_space = spaces.Box(-action_high, action_high, dtype=np.float32)
-        self.action_space = spaces.Box(-self.MAX_TRQUE, self.MAX_TRQUE, dtype=np.float32)
+        self.action_space = spaces.Box(-1, 1, dtype=np.float32)
+        # self.action_space = spaces.Box(-self.MAX_TORQUE, self.MAX_TORQUE, dtype=np.float32)
 
         # 観測空間：位置、速度、角度、角速度
-        high = np.array([self.angle_threshold, self.pos_threshold,
-                         self.pos_threshold, np.finfo(np.float32).max, 
-                         np.finfo(np.float32).max], dtype=np.float32)
-        # high = np.array([self.angle_threshold, np.finfo(np.float32).max, 
+        high = np.array([self.ANGLE_THRETHOULD, np.finfo(np.float32).max, 
+                         np.finfo(np.float32).max, np.finfo(np.float32).max], dtype=np.float32)
+        # high = np.array([self.ANGLE_THRETHOULD, np.finfo(np.float32).max, 
         #                  np.finfo(np.float32).max], dtype=np.float32)
         self.observation_space = spaces.Box(-high, high, dtype=np.float32)
 
@@ -100,39 +101,47 @@ class StandingEnv(gym.Env):
             self.data.sensordata[self.adr_acc+1],
             self.data.sensordata[self.adr_acc+2]
         )
-        # rotmat = self.data.xmat[1].reshape(3, 3)
-        # rot = R.from_matrix(rotmat)
-        # angle = rot.as_euler('xyz', degrees=False)
-        # imu = np.rad2deg(angle)  # Convert to radians
-        imu = self.madgwick_filter.get_rpy_degrees()  # 0〜2πに正規化 
+        rotmat = self.data.xmat[1].reshape(3, 3)
+        rot = R.from_matrix(rotmat)
+        angle = rot.as_euler('xyz', degrees=False)
+        imu = np.rad2deg(angle)  # Convert to radians
+        # imu = self.madgwick_filter.get_rpy_degrees()  # 0〜2πに正規化 
         body_pos_x = self.data.qpos.copy()[0]
         body_pos_y = self.data.qpos.copy()[1]
         angular_vel = self.data.sensor("imu_gyro").data.copy()[0]+np.random.normal(0, 0.01)  # ジャイロのx軸の角速度にノイズを加える
-        angular_acc = (angular_vel - self.prev_angular_vel) / self.model.opt.timestep   
+        angular_acc = (angular_vel - self.prev_angular_vel) / (self.model.opt.timestep * self.frame_skip)   
         # Update previous value for next loop
         self.prev_angular_vel = angular_vel
+        self.total_odometory += angular_vel * 3.1 * self.model.opt.timestep * self.frame_skip
+        # print("delta_odometory:", angular_vel * 0.031 * self.model.opt.timestep * self.frame_skip)
         # Ac_motor_vel = self.data.sensordata[self.adr_F_vel]  # 0〜2πに正規化 
         # print(np.deg2rad(imu[0])) 
-        return np.array([np.deg2rad(imu[0]), body_pos_x, body_pos_y, angular_vel, angular_acc], dtype=np.float32)
+        return np.array([np.deg2rad(imu[0]), angular_vel, angular_acc, self.total_odometory], dtype=np.float32)
         return np.array([np.deg2rad(imu[0]), angular_vel, angular_acc], dtype=np.float32)
 
     # バイクの傾きと位置の変化から報酬を決定
     def _reward(self, obs, action):
-        imu, body_pos_x, body_pos_y, angular_vel, angular_acc = obs
+        imu, angular_vel, angular_acc, _ = obs
+        
         # imu, angular_vel, angular_acc = obs
-        reward = 0.0
+        reward = 5.0
         # """ 
         # reduce reward when the torque direction is opposite to the lean direction
         # if np.sign(imu + np.deg2rad(4.0)) != np.sign(action):
-        #     reward -= 1.0 * (abs(abs((imu+np.deg2rad(4.0))/self.angle_threshold) 
-        #                   + abs(action/self.MAX_TRQUE)))
+        #     reward -= 1.0 * (abs(abs((imu+np.deg2rad(4.0))/self.ANGLE_THRETHOULD) 
+        #                   + abs(action/self.MAX_TORQUE)))
 
         # increase reward when the angle of lean is minimized
-        reward += -5*(abs(imu) - self.angle_threshold)
-
+        reward += -5*(abs(imu) - self.ANGLE_THRETHOULD)
+        reward -= 30 * self.total_odometory
+        # print("total_odometory:", self.total_odometory)
+        # reward += 5*(np.deg2rad(45) - abs(imu)) / np.deg2rad(45)
         # reduce reward when position is differ from center
-        # reward -= 50.0 * np.sqrt(body_pos_x**2 + body_pos_y**2)
-        reward -= 20 * abs(angular_vel)
+        # reward -= 80.0 * np.sqrt(body_pos_x**2 + body_pos_y**2)
+        # reward -= 3 * max(1, 0.25 * abs(angular_vel))
+        # reward -= 5*abs(angular_vel)
+
+        # reward -= 1 * (abs(action) / self.MAX_TORQUE)  # 後輪トルクの使用を抑制
         return reward
         # """   
         return self.step_count / 100.0
@@ -142,40 +151,32 @@ class StandingEnv(gym.Env):
         # target_angle = action[0]
         target_torque = action
         # print(action)
-        # for i in range(self.frame_skip):
-        #     self.data.ctrl[0] = np.deg2rad(-45)
-        #     self.data.ctrl[1] = target_torque
-        #     mujoco.mj_step(self.model, self.data)
         self.data.ctrl[0] = np.deg2rad(-60)
-        self.data.ctrl[2] = target_torque
-        mujoco.mj_step(self.model, self.data)
+        self.data.ctrl[1] = target_torque * self.MAX_TORQUE
+        # mujoco.mj_step(self.model, self.data)
+        for i in range(self.frame_skip):
+            mujoco.mj_step(self.model, self.data)
+            # time.sleep(0.002)  # ステップごとに少し待つ（必要に応じて調整）
                 
         obs = self._get_obs()
         reward = self._reward(obs, target_torque)
         # if(self.step_count == 1):
         #     print("imu =", np.rad2deg(obs[0]))
 
-        done = bool(
-            # abs(np.linalg.norm(self.data.xpos[1, :2])) > self.pos_threshold
-            abs(obs[0]) > self.angle_threshold or
-            np.sqrt(obs[1]**2 + obs[2]**2) > self.pos_threshold or
-            self.step_count >= self.max_step
-        )
-        # if done:
-        #     if self.step_count > self.max_step*0.9:
-        #         reward += self.max_step * 0.9 / 10.0
-        #     else:
-        #         reward += self.step_count / 10.0
+        terminated = bool(abs(obs[0]) > self.ANGLE_THRETHOULD)
+        truncated = bool(self.step_count >= self.MAX_STEP)
+        # if truncated:
+        #     reward += 50.0  # タイムアウトで終了した場合は追加報酬を与える
             # print(reward)
             # print(self.step_count)
         # 辞書の中にデータを入れる
         info = {
-            "mj_data": self.data, 
-            "other_info": 123
+            # "mj_data": self.data, 
+            # "other_info": 123
         }
         self.step_count += 1
 
-        return obs, reward, done, False, {}
+        return obs, reward, terminated, truncated, info
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
@@ -185,14 +186,16 @@ class StandingEnv(gym.Env):
             self.madgwick_filter = MadgwickFilter(self.model.opt.timestep, gyro_meas_error=1.0)
             mujoco.mj_forward(self.model, self.data)
         self.data.qpos[8] = np.deg2rad(-60)
+        self.data.ctrl[1] = -self.MAX_TORQUE
         # angle = np.random.uniform(-self.noise_angle + 3.5, self.noise_angle + 3.5)
-        angle = 3.7
+        angle = 4
         self.data.qpos[3:7] = [1, 0, 0, 0]
         mujoco.mju_euler2Quat(self.data.qpos[3:7], np.array([np.deg2rad(angle), 0, 0]), "xyz")    
 
         self.step_count = 0
         self.wheel_pos = self.data.qvel[self.model.jnt_dofadr[self.l_wheel_id]]
         self.prev_angular_vel = 0.0
+        self.total_odometory = 0.0
         mujoco.mj_forward(self.model, self.data)
         return self._get_obs(), {}
 
