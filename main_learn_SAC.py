@@ -56,7 +56,7 @@ sac_model = SAC(
 
 # 学習開始
 sac_model.learn(
-    total_timesteps=5000000, 
+    total_timesteps=3000000, 
     callback=eval_callback,
     progress_bar=True # 学習状況が見やすくなります
 )

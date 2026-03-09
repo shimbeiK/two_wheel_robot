@@ -1,10 +1,12 @@
 from stable_baselines3 import PPO
-from bike_env_v3_NonSteer import StandingEnv
+# from bike_env_v3_NonSteer_withrealnoise import StandingEnv
+# from bike_env_v3 import StandingEnv
+from bike_env_v3_straight import StandingEnv
 import mujoco, time, os, pickle, shutil
 from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.callbacks import BaseCallback, EvalCallback
 from stable_baselines3.common.vec_env import SubprocVecEnv
-from cfg_standing import PythonConfig
+from cfg_standing_straight import PythonConfig
 
 train_cfg_dict = PythonConfig.get_train_cfg()
 
@@ -17,15 +19,45 @@ class RenderCallback(BaseCallback):
         # 毎ステップ呼び出される
         self.env.render()
         return True
+
+class TensorboardCallback(BaseCallback):
+    """
+    環境のinfoから個別の報酬コンポーネントを読み取り、TensorBoardに記録するコールバック
+    """
+    def __init__(self, verbose=0):
+        super().__init__(verbose)
+
+    def _on_step(self) -> bool:
+        # 複数の環境が並列で動いているので、それぞれのinfoを確認する
+        for info in self.locals.get("infos", []):
+            # Gymnasiumの仕様上、終了ステップのinfoは "final_info" に格納される
+            real_info = info.get("final_info", info)
+            
+            # エピソード終了時に記録された報酬があればTensorBoardに送る
+            if "ep_rew_posture" in real_info:
+                self.logger.record("custom_rewards/posture_ep", real_info["ep_rew_posture"])
+                self.logger.record("custom_rewards/torque_ep", real_info["ep_rew_torque"])
+                self.logger.record("custom_rewards/steering_ep", real_info["ep_rew_steering"])
+                self.logger.record("custom_rewards/Xvel_ep", real_info["ep_rew_Xvel"])
+                self.logger.record("custom_rewards/Ytptal_ep", real_info["ep_rew_Ytotal"])
+
+        return True
     
-MODEL_PATH = "mjcf2/scene.xml"
+MODEL_PATH = "mjcf_symmetry/HBP_V2_mjcf/scene.xml"
+# MODEL_PATH = "mjcf2/scene.xml"
 model = mujoco.MjModel.from_xml_path(MODEL_PATH)
 data = mujoco.MjData(model)
-log_dir = "tboard_logs/kourin21"
+# log_dir = "tboard_logs/kourin21"
 save_model_dir = "two_wheel_robot/results/stop_withCon_v3/"
-env_cfg, obs_cfg, reward_cfg, command_cfg = PythonConfig.get_cfgs()
+env_cfg, obs_cfg, reward_cfg, cmd_cfg = PythonConfig.get_cfgs()
 train_cfg = PythonConfig.get_train_cfg()
-
+# すべての設定を一つの辞書にまとめる
+full_config = {
+    "env_cfg": env_cfg,
+    "obs_cfg": obs_cfg,
+    "reward_cfg": reward_cfg,
+    "cmd_cfg": cmd_cfg
+}
 # 3. 過去のログデータのクリーンアップ
 def clean_log_dir(log_dir):
     if os.path.exists(log_dir): # もし同じ名前のログフォルダがすでに存在していたら
@@ -34,14 +66,14 @@ def clean_log_dir(log_dir):
 
 
 if __name__ == "__main__":
-    clean_log_dir(log_dir) # ログディレクトリのクリーンアップを実行
+    # clean_log_dir(log_dir) # ログディレクトリのクリーンアップを実行
     # clean_log_dir(save_model_dir) # ベストモデル保存用のサブフォルダもクリーンアップ
 
     # 4. 学習設定のバックアップ保存
-    pickle.dump(
-        [env_cfg, obs_cfg, reward_cfg, command_cfg, train_cfg], # 保存する設定データのリスト
-        open(f"{log_dir}/cfgs.pkl", "wb"), # "wb"（バイナリ書き込みモード）でファイルを開いて保存する
-    )
+    # pickle.dump(
+    #     [env_cfg, obs_cfg, reward_cfg, command_cfg, train_cfg], # 保存する設定データのリスト
+    #     open(f"{log_dir}/cfgs.pkl", "wb"), # "wb"（バイナリ書き込みモード）でファイルを開いて保存する
+    # )
     env = make_vec_env(
         StandingEnv, 
         n_envs=16, 
@@ -65,12 +97,16 @@ if __name__ == "__main__":
         render=False
     )
 
-    ppo_model = PPO(**train_cfg_dict, env=env)
+    tb_callback = TensorboardCallback()
 
-    # ppo_model = PPO.load("two_wheel_robot/results/betters/v3_Nonsteer_slowely_back/kourin21_con.zip", env=env)
-    # ppo_model = PPO.load("two_wheel_robot/results/stop_withCon_v3/kourin21_con.zip", env=env)
+    ppo_model = PPO(**train_cfg_dict, env=env)
+# 設定内容を文字列にして TensorBoard に送る
+    import json
+    config_str = json.dumps(full_config, indent=4)
+    # model.get_logger().record("tboard_logs/kourin25/hyperparameters", config_str)
+    ppo_model = PPO.load("two_wheel_robot/results/stop_withCon_v3/kourin21_con.zip", env=env, )
     time.sleep(0.1)
-    # ppo_model.learn(total_timesteps=2000000, callback=eval_callback, reset_num_timesteps=False)
-    ppo_model.learn(total_timesteps=5000000, callback=eval_callback)
+    ppo_model.learn(total_timesteps=5000000, callback=[eval_callback, tb_callback], reset_num_timesteps=False)
+    # ppo_model.learn(total_timesteps=5000000, callback=[eval_callback, tb_callback])
 
     ppo_model.save(f"two_wheel_robot/results/stop_withCon_v3/kourin21_con.zip")

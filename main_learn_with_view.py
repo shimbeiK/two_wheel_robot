@@ -1,5 +1,5 @@
 from stable_baselines3 import PPO
-from bike_env_v2 import StandingEnv
+from bike_env_v3_NonSteer import StandingEnv
 # from segway_env import StandingEnv
 from stable_baselines3.common.monitor import Monitor
 import mujoco, time
@@ -8,6 +8,10 @@ from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
 from stable_baselines3.common.vec_env import SubprocVecEnv
 from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.callbacks import BaseCallback, EvalCallback
+from cfg_standing import PythonConfig
+
+train_cfg_dict = PythonConfig.get_train_cfg()
+
 
 class RenderCallback(BaseCallback):
     def __init__(self, env, verbose=0):
@@ -102,11 +106,7 @@ ppo_model = PPO(
     tensorboard_log=log_dir
 )
 
-# ppo_model = PPO.load("two_wheel_robot/results/stop_withCon/kourin25/20260222-1449_con",
-#                       env=env, ent_coef=0.03)
-# ppo_model = PPO.load("two_wheel_robot/results/terning", env=env, clip_range=0.2)
-# XMLファイルを読み込み
-# MODEL_PATH = "sim_env/bike.xml"
+ppo_model = PPO(**train_cfg_dict, env=env)
 time.sleep(0.1)
 # ppo_model.learn(total_timesteps=1000000, callback=eval_callback, reset_num_timesteps=False)
 ppo_model.learn(total_timesteps=3000000, callback=render_callback)
