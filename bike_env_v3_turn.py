@@ -9,7 +9,7 @@ import numpy as np
 import os
 from scipy.spatial.transform import Rotation as R
 from madgwick import MadgwickFilter
-from cfg_standing_straight import PythonConfig
+from cfg_standing_turn import PythonConfig
 from collections import deque
 
 class StandingEnv(gym.Env):
@@ -80,25 +80,17 @@ class StandingEnv(gym.Env):
             self.filtered_roll = angle[0]
 
         self.total_odometry += drive_vel * 3.1 * self.DT
-        target_drive_vel = self.TARGET_xVEL / 0.031
-        if(self.TARGET_xVEL != 0):
-            normalized_diff_vel = (self.TARGET_xVEL - 0.031 * drive_vel) / self.TARGET_xVEL  # 速度偏差の正規化: 目標速度とのズレを -1.0 ~ 1.0 の範囲に収める
-        elif(self.TARGET_xVEL == 0):
+        target_drive_vel = self.TARGET_VEL / 0.031
+        if(self.TARGET_VEL != 0):
+            normalized_diff_vel = (self.TARGET_VEL - 0.031 * drive_vel) / self.TARGET_VEL  # 速度偏差の正規化: 目標速度とのズレを -1.0 ~ 1.0 の範囲に収める
+        elif(self.TARGET_VEL == 0):
             normalized_diff_vel = abs(0.031 * drive_vel / self.cmd_cfg["max_vel"])
 
         delta_theta = self.DT * 0.031 * drive_vel * np.tan(steer_pos) / 0.1605
         self.total_theta += delta_theta
-        delta_X = 0.031 * drive_vel * np.cos(steer_pos) * self.DT * np.cos(self.total_theta + delta_theta/2)          
-        delta_Y_turn = np.sign(steer_pos) * np.sqrt((0.031 * drive_vel * self.DT)**2 - delta_X**2) * np.cos(self.total_theta)
-        # delta_Y = 0.031 * drive_vel * np.sin(steer_pos) * self.DT * np.sin(self.total_theta + delta_theta/2) + delta_Y_turn                       # 簡易的なオドメトリ計算によるY方向（横ずれ）の積算
-        delta_Y = delta_Y_turn                       # 簡易的なオドメトリ計算によるY方向（横ずれ）の積算
-        # print("tes",delta_X, delta_Y_turn, delta_Y)
-        self.total_Xpos += delta_X
-        self.total_Ypos += delta_Y
-        self.obs = delta_Y
 
         return np.array([self.filtered_roll, angular_vel, drive_vel, 
-                         target_drive_vel, normalized_diff_vel, delta_Y, steer_pos], dtype=np.float32)
+                         target_drive_vel, normalized_diff_vel, steer_pos, self.target_steer_angle], dtype=np.float32)
                         #  act, prev_act, body_pos_x, body_pos_y], dtype=np.float32)
 
     # バイクの傾きと位置の変化から報酬を決定
@@ -106,33 +98,30 @@ class StandingEnv(gym.Env):
         # imu, angular_vel, angular_acc, action_back, body_pos_x, body_pos_y = obs
         imu, _, drive_vel, _ , _, _, _ = obs
         # print("drive_vel:", drive_vel)
-        if(self.TARGET_xVEL != 0):
-            normalized_diff_vel = min(1, abs(self.TARGET_xVEL - 0.031 * drive_vel) / abs(self.TARGET_xVEL))  # 速度偏差の正規化: 目標速度とのズレを -1.0 ~ 1.0 の範囲に収める
-        elif(self.TARGET_xVEL == 0):
+        if(self.TARGET_VEL != 0):
+            normalized_diff_vel = min(1, abs(self.TARGET_VEL - 0.031 * drive_vel) / abs(self.TARGET_VEL))  # 速度偏差の正規化: 目標速度とのズレを -1.0 ~ 1.0 の範囲に収める
+        elif(self.TARGET_VEL == 0):
             normalized_diff_vel = abs(0.031 * drive_vel / self.cmd_cfg["max_vel"])
         normalized_angle = max(0.0, (np.deg2rad(45) - abs(imu)) / np.deg2rad(45))                       # 姿勢角の正規化: 45度(制限値)を1.0とし、直立(0度)に近いほど1.0、倒れるほど0.0に近づく
         normalized_torque = (abs(self.prev_torque - action[1])) / 2                             # トルク変化の正規化: 前回のトルク指令との差分。急激な出力変化（高周波な振動）へのペナルティ用
-        normalized_delta_Xvel = normalized_diff_vel * abs(np.cos(self.total_theta))
+        normalized_delta_vel = normalized_diff_vel * abs(np.cos(self.total_theta))
         # 状態の更新（次ステップの計算用）
         self.prev_torque = action[1]
-        self.prev_normalized_total_Xvel = self.normalized_total_Xvel
-        self.normalized_total_Xvel += normalized_diff_vel                                       # 累積速度偏差の更新
+        self.prev_normalized_total_vel = self.normalized_total_vel
+        self.normalized_total_vel += normalized_diff_vel                                       # 累積速度偏差の更新
 
         r_posture = self.reward_cfg["posture_unstable"] * normalized_angle**2
         r_torque = self.reward_cfg["penalty_torque_unstable"] * normalized_torque
-        r_steering = self.reward_cfg["penalty_steering"] * abs(action[0]) * (self.TARGET_xVEL*5)**2
+        r_steering = self.reward_cfg["penalty_steering"] * abs((self.target_steer_angle - abs(action[0]) * self.MAX_STEER) / self.target_steer_angle)
         # Not normalized
-        r_Xvel = self.reward_cfg["Xvel_penalty"] * (1 - normalized_delta_Xvel)
-        r_Ytotal = self.reward_cfg["Ypos_penalty"] * abs(self.total_Ypos) * 20
-        # r_Ytotal = self.reward_cfg["Ypos_penalty"] * min(0.005, abs(self.total_Ypos)) * 200
+        r_vel = self.reward_cfg["vel_penalty"] * (1 - normalized_delta_vel)
 
-        reward = r_posture + r_steering + r_torque + r_Xvel + r_Ytotal
+        reward = r_posture + r_steering + r_torque + r_vel
         reward_info = {
             "r_posture": r_posture,
             "r_steering": r_steering,
             "r_torque": r_torque,
-            "r_Xvel": r_Xvel,
-            "r_Ytotal": r_Ytotal,
+            "r_vel": r_vel,
         }
 
         return reward, reward_info
@@ -174,10 +163,9 @@ class StandingEnv(gym.Env):
         
         # 各報酬をエピソード合計に加算
         self.ep_rew_posture += rew_info["r_posture"]
-        self.ep_rew_Ytotal += rew_info["r_Ytotal"]
         self.ep_rew_steering += rew_info["r_steering"]
         self.ep_rew_torque += rew_info["r_torque"]
-        self.ep_rew_Xvel += rew_info["r_Xvel"]
+        self.ep_rew_vel += rew_info["r_vel"]
 
         if terminated:
             reward += self.reward_cfg["penalty_if_truncated"]
@@ -187,17 +175,16 @@ class StandingEnv(gym.Env):
         info = {}
         if terminated or truncated:  
             info["ep_rew_posture"] = self.ep_rew_posture
-            info["ep_rew_Ytotal"] = self.ep_rew_Ytotal        
             info["ep_rew_steering"] = self.ep_rew_steering      
             info["ep_rew_torque"] = self.ep_rew_torque     
-            info["ep_rew_Xvel"] = self.ep_rew_Xvel
+            info["ep_rew_vel"] = self.ep_rew_vel
 
             # 簡潔さ重視：ゼロ除算回避と平均化を1行で処理
             info.update({
                 k: (getattr(self, k) / max(1, self.step_count)) / abs(self.reward_cfg[w])
                 if self.reward_cfg[w] != 0 else 0
-                    for k, w in (("ep_rew_posture", "posture_unstable"), ("ep_rew_Xvel", "Xvel_penalty"),
-                       ("ep_rew_Ytotal", "Ypos_penalty"))
+                    for k, w in (("ep_rew_posture", "posture_unstable"), ("ep_rew_vel", "vel_penalty"),
+                       ("ep_rew_steering", "penalty_steering"))
             })        
 
         return obs, reward, terminated, truncated, info
@@ -215,19 +202,24 @@ class StandingEnv(gym.Env):
         if self.env_cfg["init_tilt_noise"] == True:
             angle += np.random.normal(0, np.deg2rad(self.NOISE_ANGLE))
         self.data.qpos[3:7] = [1, 0, 0, 0]
-        self.TARGET_xVEL = -self.cmd_cfg["target_vel"]
-        if(self.cmd_cfg["noise_target_Xvel"]==True):
-            self.TARGET_xVEL -= (self.cmd_cfg["max_vel"] * np.random.uniform(0, self.cmd_cfg["noise_range"]))  # what is the base vel?
-        if(abs(self.TARGET_xVEL) < 0.02):
-            self.TARGET_xVEL = 0
+        self.TARGET_VEL = -self.cmd_cfg["target_vel"]
+        if(self.cmd_cfg["noise_target_vel"]==True):
+            self.TARGET_VEL -= (self.cmd_cfg["max_vel"] * np.random.uniform(0, self.cmd_cfg["noise_range"]))  # what is the base vel?
+        if(abs(self.TARGET_VEL) < 0.02):
+            self.TARGET_VEL = 0
         if(self.cmd_cfg["noise_init_speed"]==True):
-            init_Xvel = - np.random.uniform(0, self.cmd_cfg["noise_range"])
-            self.data.qvel[0] = init_Xvel
-            self.data.qvel[self.model.jnt_dofadr[self.l_wheel_id]] = init_Xvel / 0.031
-            self.data.qvel[self.model.jnt_dofadr[self.f_wheel_id]] = init_Xvel / 0.031
+            init_vel = - np.random.uniform(0, self.cmd_cfg["noise_range"])
+            self.data.qvel[0] = init_vel
+            self.data.qvel[self.model.jnt_dofadr[self.l_wheel_id]] = init_vel / 0.031
+            self.data.qvel[self.model.jnt_dofadr[self.f_wheel_id]] = init_vel / 0.031
+        range_max = self.cmd_cfg["target_steer_angle_range"]
+        exclude_val = 10.0 # 除外したい角度
 
+        # 10 〜 range_max の範囲で乱数を生成し、ランダムに 1 か -1 を掛ける
+        sign = np.random.choice([-1, 1])
+        self.target_steer_angle = sign * np.random.uniform(exclude_val, range_max)
 
-        # print(self.TARGET_xVEL)
+        # print(self.TARGET_VEL)
 
         mujoco.mju_euler2Quat(self.data.qpos[3:7], np.array([angle, 0, 0]), "xyz")    
 
@@ -239,19 +231,19 @@ class StandingEnv(gym.Env):
         self.total_Xpos = 0.0
         self.total_Ypos = 0.0
         self.steering_angle = 0.0
-        self.normalized_total_Xvel = 0.0
+        self.normalized_total_vel = 0.0
         self.prev_action = 0.0
         self.torque = 0.0
         self.prev_torque = 0.0
         self.filtered_roll = 0.0
-        self.prev_normalized_total_Xvel = 0.0
+        self.prev_normalized_total_vel = 0.0
 
         self.ep_rew_posture = 0.0
         self.ep_rew_Ytotal = 0.0
         self.ep_rew_steering = 0.0
         self.ep_rew_torque = 0.0
-        self.ep_rew_Xvel = 0.0
-        self.ep_rew_total_Xvel = 0.0
+        self.ep_rew_vel = 0.0
+        self.ep_rew_total_vel = 0.0
         self.control_queue = deque([np.zeros(2)] * self.control_queue.maxlen, maxlen=self.control_queue.maxlen)
         self.encoder_queue = deque([np.zeros(2)] * self.control_queue.maxlen, maxlen=self.control_queue.maxlen)
 

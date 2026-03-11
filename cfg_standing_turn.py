@@ -28,7 +28,7 @@ class PythonConfig:
         env_cfg = {
             # Termination bounds (converted np.pi/6 to approx 30 degrees)
             "termination_if_roll_greater_than": np.deg2rad(45.0),
-            "termination_if_posY_greater_than": 0.1, # meters
+            "termination_if_posY_greater_than": 0.7, # meters
             "termination_if_step_count_greater_than": 1000, # steps
             "frame_skip": 5,  # Number of physics steps per environment step
 
@@ -59,11 +59,10 @@ class PythonConfig:
         reward_cfg = {
             "penalty_if_truncated": -0.0,       # big penalty when bike roll down
             "penalty_torque_unstable": -0,       # penalty if output is unstable
-            "penalty_steering": -0,                 # bonus abs steering angle is smaller
-            "Ypos_penalty": -1.3,                   # bonus if Y pos is near at 0 
-            "total_Xvel_penalty": -0.0,                   # bonus if real vel is simillar with target vel
+            "penalty_steering": -1,                 # bonus abs steering angle is smaller
+            "total_Xel_penalty": -0.0,                   # bonus if real vel is simillar with target vel
 
-            "Xvel_penalty": 1.,                   # bonus if real vel is simillar with target vel
+            "vel_penalty": 1.,                   # bonus if real vel is simillar with target vel
             "posture_unstable": 1.0,             # bonus if posture is stable
         }
         
@@ -71,10 +70,11 @@ class PythonConfig:
         cmd_cfg = {
             "num_commands": 3, 
             "max_vel": 1.0, # m/s. 100cm/s.
-            "noise_init_speed": True,
+            "noise_init_speed": False,
             "target_vel": .1,
-            "noise_target_Xvel": True,
+            "noise_target_vel": True,
             "noise_range": .9,   #[0, 1]   
+            "target_steer_angle_range": np.deg2rad(60),       
         }
 
         return env_cfg, obs_cfg, reward_cfg, cmd_cfg

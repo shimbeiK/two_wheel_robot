@@ -1,12 +1,12 @@
 from stable_baselines3 import PPO
 # from bike_env_v3_NonSteer_withrealnoise import StandingEnv
 # from bike_env_v3 import StandingEnv
-from bike_env_v3_straight import StandingEnv
+from bike_env_v3_turn import StandingEnv
 import mujoco, time, os, pickle, shutil
 from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.callbacks import BaseCallback, EvalCallback
 from stable_baselines3.common.vec_env import SubprocVecEnv
-from cfg_standing_straight import PythonConfig
+from cfg_standing_turn import PythonConfig
 
 train_cfg_dict = PythonConfig.get_train_cfg()
 
@@ -38,8 +38,7 @@ class TensorboardCallback(BaseCallback):
                 self.logger.record("custom_rewards/posture_ep", real_info["ep_rew_posture"])
                 self.logger.record("custom_rewards/torque_ep", real_info["ep_rew_torque"])
                 self.logger.record("custom_rewards/steering_ep", real_info["ep_rew_steering"])
-                self.logger.record("custom_rewards/Xvel_ep", real_info["ep_rew_Xvel"])
-                self.logger.record("custom_rewards/Ytptal_ep", real_info["ep_rew_Ytotal"])
+                self.logger.record("custom_rewards/vel_ep", real_info["ep_rew_vel"])
 
         return True
     
@@ -92,7 +91,7 @@ if __name__ == "__main__":
     eval_callback = EvalCallback(
         eval_env,
         best_model_save_path=f"two_wheel_robot/results/stop_withCon_v3/",
-        eval_freq=2500,
+        eval_freq=5000,
         deterministic=True,
         render=False
     )
@@ -104,9 +103,9 @@ if __name__ == "__main__":
     import json
     config_str = json.dumps(full_config, indent=4)
     # model.get_logger().record("tboard_logs/kourin25/hyperparameters", config_str)
-    ppo_model = PPO.load("two_wheel_robot/results/stop_withCon_v3/kourin21_con.zip", env=env, )
+    # ppo_model = PPO.load("two_wheel_robot/results/stop_withCon_v3/kourin21_con.zip", env=env, )
     time.sleep(0.1)
-    ppo_model.learn(total_timesteps=5000000, callback=[eval_callback, tb_callback], reset_num_timesteps=False)
-    # ppo_model.learn(total_timesteps=5000000, callback=[eval_callback, tb_callback])
+    # ppo_model.learn(total_timesteps=5000000, callback=[eval_callback, tb_callback], reset_num_timesteps=False)
+    ppo_model.learn(total_timesteps=5000000, callback=[eval_callback, tb_callback])
 
     ppo_model.save(f"two_wheel_robot/results/stop_withCon_v3/kourin21_con.zip")
