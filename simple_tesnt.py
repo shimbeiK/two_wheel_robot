@@ -11,37 +11,47 @@ import mujoco.viewer
 import numpy as np
 import time
 from madgwick import MadgwickFilter
+from scipy.spatial.transform import Rotation as R
 
 # XMLファイルを読み込み
 MODEL_PATH = "two_wheel_robot/sim_env/bike.xml"
-MODEL_PATH = "mjcf2/scene.xml"
-init_angle = -60  # フォークの初期角度設定(deg)
+# MODEL_PATH = "mjcf2/scene.xml"
+MODEL_PATH = "mjcf_symmetry/HBP_V2_mjcf/scene.xml"
+init_angle = 0  # フォークの初期角度設定(deg)
 model = mujoco.MjModel.from_xml_path(MODEL_PATH)
 data = mujoco.MjData(model)
 
 counter = 0
+a = 0
+num = 0.021
 # ビューアを起動
 with mujoco.viewer.launch_passive(model, data) as viewer:
     print("Viewer started. Press Ctrl+C to exit.")
-    data.qpos[3:7] = [1, 0, 0, 0]
+    # data.qpos[3:7] = [1, 0, 0, 0]
 
     # 2. Define the Euler rotation (roll, pitch, yaw)
     # converting 45 degrees pitch to quaternion
-    mujoco.mju_euler2Quat(data.qpos[3:7], np.array([np.deg2rad(3), 0, 0]), "xyz")    
-    data.qpos[8] = np.deg2rad(init_angle)
-    # data.ctrl[1] = 0.2   # 後輪トルク
+    # mujoco.mju_euler2Quat(data.qpos[3:7], np.array([np.deg2rad(2), 0, 0]), "xyz")    
+    data.qpos[7] = np.deg2rad(-60)
+    # data.ctrl[0] = np.deg2rad(180)   # 後輪トルク
     mujoco.mj_forward(model, data)
+    l_wheel_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, "back_tire_pitch")
+    f_wheel_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, "front_tire_pitch")
     viewer.opt.flags[mujoco.mjtVisFlag.mjVIS_CONTACTFORCE] = True
 
     while viewer.is_running():
-        time.sleep(0.002)
-        # 1. 制御入力
+        i=0
+        time.sleep(0.01)
+
         data.ctrl[0] = np.deg2rad(init_angle)    # fork の角度目標
         # data.ctrl[1] = -0.084   # 後輪トルク
-        data.ctrl[2] = -0.042   # 後輪トルク
-        # data.ctrl[2] = 0.1     # 後輪トルク
+        data.ctrl[1] = -0.021   # 後輪トルク
+        print(data.qvel[model.jnt_dofadr[f_wheel_id]])
 
+        # data.ctrl[2] = -0.021 
         # 2. 1 ステップ進める
         mujoco.mj_step(model, data)
+            
+        print(data.qvel[model.jnt_dofadr[l_wheel_id]] * 0.031)
 
         viewer.sync()    

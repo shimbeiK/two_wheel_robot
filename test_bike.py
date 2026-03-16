@@ -77,7 +77,7 @@ def observe():
     rot = R.from_matrix(rotmat)
     angle = rot.as_euler('xyz', degrees=False)
     # obs['imu'] = madgwick_filter.get_rpy_degrees()
-    obs['imu'] = angle
+    obs['imu'] = np.rad2deg(angle)
     obs['body_pos'] = data.qpos.copy()
     obs['body_arg'] = data.qvel.copy()
     obs['F_motor_pos'] = data.sensordata[adr_F_pos]
@@ -105,7 +105,7 @@ with mujoco.viewer.launch_passive(model, data) as viewer:
  
     # 2. Define the Euler rotation (roll, pitch, yaw)
     # converting 45 degrees pitch to quaternion
-    mujoco.mju_euler2Quat(data.qpos[3:7], np.array([np.deg2rad(30), 0, 0]), "xyz")    
+    mujoco.mju_euler2Quat(data.qpos[3:7], np.array([np.deg2rad(0), 0, 0]), "xyz")    
     # data.ctrl[1] = 0.2   # 後輪トルク
     mujoco.mj_forward(model, data)
     viewer.opt.flags[mujoco.mjtVisFlag.mjVIS_CONTACTFORCE] = True
@@ -141,19 +141,19 @@ with mujoco.viewer.launch_passive(model, data) as viewer:
         # Update previous value for next loop
         prev_gyro = curr_gyro
         if(counter % 10 == 1):
-            print("dt:", dt)
-            print("diff:", curr_gyro - prev_gyro)
-            print("angular vel:", curr_gyro)
-            print("angular acc:", angular_accel_est)
-            # print("obs['imu'] =", obs['imu'])
-            # if abs(obs['imu'][0]) > 45:
-            #     print(counter, "倒れた")
-            #     time.sleep(10)
+            # print("dt:", dt)
+            # print("diff:", curr_gyro - prev_gyro)
+            # print("angular vel:", curr_gyro)
+            # print("angular acc:", angular_accel_est)
+            print("obs['imu'] =", obs['imu'])
+            if abs(obs['imu'][0]) > 45:
+                print(counter, "倒れた")
+                time.sleep(10)
             body_pos_x = data.qpos.copy()[0]
             body_pos_y = data.qpos.copy()[1]
 
             # print(np.sqrt(body_pos_x**2 + body_pos_y**2))
-            # print("obs['imu'] =", obs['imu'])
+            print("obs['imu'] =", obs['imu'])
             # print("obs['body_pos'] =", obs['body_pos'])
             # print("obs['body_arg'] =", obs['body_arg'])
             # print("obs['F_motor_pos'] =", np.rad2deg(obs['F_motor_pos']))
